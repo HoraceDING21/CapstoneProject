@@ -95,8 +95,19 @@ def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_
                 w_norm = max(0, min(1, w_norm))
                 h_norm = max(0, min(1, h_norm))
 
-                keypoints = ann.get("keypoints", [])
-                nk = len(keypoints) // 3
+                raw_kpts = ann.get("keypoints", [])
+
+                # Normalise to a list of (x, y, v) tuples regardless of storage format:
+                #   - Nested format (sskit/SoccerNet): [[x0,y0,v0], [x1,y1,v1], ...]
+                #   - Flat format (standard COCO):      [x0, y0, v0, x1, y1, v1, ...]
+                if raw_kpts and isinstance(raw_kpts[0], (list, tuple)):
+                    kpt_triples = [tuple(kp) for kp in raw_kpts]
+                else:
+                    kpt_triples = [
+                        (raw_kpts[i], raw_kpts[i + 1], raw_kpts[i + 2])
+                        for i in range(0, len(raw_kpts) - 2, 3)
+                    ]
+
                 kpt_values = []
                 for ki in range(min(nk, num_keypoints)):
                     kx = keypoints[ki * 3] / img_w
