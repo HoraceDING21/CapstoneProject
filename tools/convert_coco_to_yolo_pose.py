@@ -34,7 +34,9 @@ from collections import defaultdict
 from pathlib import Path
 
 
-def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_keypoints: int = 2, copy_images: bool = False):
+def convert_coco_to_yolo_pose(
+    coco_dir: str, output_dir: str, splits: list, num_keypoints: int = 2, copy_images: bool = False
+):
     coco_dir = Path(coco_dir)
     output_dir = Path(output_dir)
 

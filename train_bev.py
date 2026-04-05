@@ -29,19 +29,24 @@ from ultralytics import YOLO
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train YOLOv11 Pose for BEV position estimation")
-    parser.add_argument("--model-size", type=str, default="m", choices=["n", "s", "m", "l", "x"],
-                        help="YOLO11 model size variant")
-    parser.add_argument("--pretrained", type=str, default=None,
-                        help="Path to pretrained weights (e.g. yolo11m-pose.pt). "
-                             "If not specified, uses COCO pretrained for the chosen size.")
-    parser.add_argument("--data", type=str, default="soccernet-synloc.yaml",
-                        help="Path to dataset YAML config")
+    parser.add_argument(
+        "--model-size", type=str, default="m", choices=["n", "s", "m", "l", "x"], help="YOLO11 model size variant"
+    )
+    parser.add_argument(
+        "--pretrained",
+        type=str,
+        default=None,
+        help="Path to pretrained weights (e.g. yolo11m-pose.pt). "
+        "If not specified, uses COCO pretrained for the chosen size.",
+    )
+    parser.add_argument("--data", type=str, default="soccernet-synloc.yaml", help="Path to dataset YAML config")
     parser.add_argument("--epochs", type=int, default=300, help="Number of training epochs")
     parser.add_argument("--batch", type=int, default=64, help="Batch size")
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--lr0", type=float, default=1e-4, help="Initial learning rate")
-    parser.add_argument("--freeze", type=int, default=11,
-                        help="Freeze first N backbone layers (11 = full YOLO11 backbone)")
+    parser.add_argument(
+        "--freeze", type=int, default=11, help="Freeze first N backbone layers (11 = full YOLO11 backbone)"
+    )
     parser.add_argument("--device", type=str, default=None, help="Device: 0, '0,1', 'cpu', etc.")
     parser.add_argument("--workers", type=int, default=8, help="Dataloader workers")
     parser.add_argument("--project", type=str, default="runs/pose-bev", help="Project directory")
