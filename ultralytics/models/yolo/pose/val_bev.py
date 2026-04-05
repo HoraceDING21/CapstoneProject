@@ -3,7 +3,7 @@
 #   mmpose/mmpose/evaluation/metrics/coco_metric.py
 #   mmpose/configs/body_bev_position/spiideo_soccernet/synloc.py
 #
-# Key evaluation behaviour reproduced from mmpose:
+# Key evaluation behavior reproduced from mmpose:
 #   - Runs standard val first to find score_threshold (saved as *_val_stats.json)
 #   - Uses sskit.coco.LocSimCOCOeval for LocSim mAP (position_from_keypoint_index=1)
 #   - Uses sskit.coco.BBoxLocSimCOCOeval for BBox LocSim mAP
@@ -14,16 +14,13 @@ from __future__ import annotations
 
 import json
 import shutil
-import zipfile
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
 from xtcocotools.coco import COCO
 
 from ultralytics.utils import LOGGER
-from ultralytics.utils.metrics import OKS_SIGMA
 
 from .val import PoseValidator
 
@@ -74,10 +71,7 @@ class BEVPoseValidator(PoseValidator):
         try:
             from sskit.coco import BBoxLocSimCOCOeval, LocSimCOCOeval
         except ImportError:
-            LOGGER.warning(
-                "sskit not installed — skipping LocSim evaluation. "
-                "Install with: pip install sskit"
-            )
+            LOGGER.warning("sskit not installed — skipping LocSim evaluation. Install with: pip install sskit")
             return stats
 
         pred_json = self.save_dir / "predictions.json"
@@ -101,7 +95,10 @@ class BEVPoseValidator(PoseValidator):
 
         # ---- BBox LocSim ----
         stats = self._run_locsim(
-            stats, coco_gt, coco_dt, sigmas,
+            stats,
+            coco_gt,
+            coco_dt,
+            sigmas,
             iou_type="locsim_bbox",
             EvalClass=BBoxLocSimCOCOeval,
             prefix="locsim_bbox",
@@ -109,7 +106,10 @@ class BEVPoseValidator(PoseValidator):
 
         # ---- Keypoint LocSim (primary metric) ----
         stats = self._run_locsim(
-            stats, coco_gt, coco_dt, sigmas,
+            stats,
+            coco_gt,
+            coco_dt,
+            sigmas,
             iou_type="locsim",
             EvalClass=LocSimCOCOeval,
             prefix="locsim",
@@ -187,13 +187,26 @@ class BEVPoseValidator(PoseValidator):
 
         # LocSim stat names (from mmpose coco_metric.py lines 594-596)
         stats_names = [
-            "AP", "AP .5", "AP .75", "AP (S)", "AP (M)", "AP (L)",
-            "AR", "AR .5", "AR .75", "AR (S)", "AR (M)", "AR (L)",
-            "precision", "recall", "f1", "score_threshold", "frame_accuracy",
+            "AP",
+            "AP .5",
+            "AP .75",
+            "AP (S)",
+            "AP (M)",
+            "AP (L)",
+            "AR",
+            "AR .5",
+            "AR .75",
+            "AR (S)",
+            "AR (M)",
+            "AR (L)",
+            "precision",
+            "recall",
+            "f1",
+            "score_threshold",
+            "frame_accuracy",
         ]
         assert len(stats_names) == len(coco_eval.stats), (
-            f"LocSim stats length mismatch: expected {len(stats_names)}, "
-            f"got {len(coco_eval.stats)}"
+            f"LocSim stats length mismatch: expected {len(stats_names)}, got {len(coco_eval.stats)}"
         )
 
         result = dict(zip(stats_names, coco_eval.stats))
