@@ -109,18 +109,21 @@ def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_
                     ]
 
                 kpt_values = []
-                for ki in range(min(nk, num_keypoints)):
-                    kx = keypoints[ki * 3] / img_w
-                    ky = keypoints[ki * 3 + 1] / img_h
-                    kv = keypoints[ki * 3 + 2]  # visibility: 0=not labeled, 1=labeled not visible, 2=visible
-                    kpt_values.extend([kx, ky, kv])
+                for ki in range(min(len(kpt_triples), num_keypoints)):
+                    kx, ky, kv = kpt_triples[ki]
+                    kpt_values.extend([kx / img_w, ky / img_h, int(kv)])
 
                 while len(kpt_values) < num_keypoints * 3:
                     kpt_values.extend([0.0, 0.0, 0])
 
                 parts = [str(cat_id)]
                 parts.extend([f"{v:.6f}" for v in [x_center, y_center, w_norm, h_norm]])
-                parts.extend([f"{v:.6f}" if isinstance(v, float) else str(int(v)) for v in kpt_values])
+                # kpt_values layout: [kx, ky, kv, kx, ky, kv, ...]
+                # kx/ky are floats (normalised coords), kv is int (visibility flag)
+                parts.extend([
+                    str(int(v)) if i % 3 == 2 else f"{v:.6f}"
+                    for i, v in enumerate(kpt_values)
+                ])
                 lines.append(" ".join(parts))
 
             with open(label_path, "w") as f:

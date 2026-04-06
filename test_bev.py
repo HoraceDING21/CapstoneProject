@@ -128,10 +128,9 @@ def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
     if device is not None:
         val_args["device"] = device
 
-    # Attach phase to args so BEVPoseValidator knows val vs test vs challenge
-    val_args["phase"] = split
-
-    validator = BEVPoseValidator(args=val_args)
+    # phase is passed separately — not inside val_args — because ultralytics
+    # get_cfg() rejects any key not in its known argument schema.
+    validator = BEVPoseValidator(args=val_args, phase=split)
     validator(model=model.model)
 
     return validator.metrics

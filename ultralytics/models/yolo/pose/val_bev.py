@@ -47,11 +47,18 @@ class BEVPoseValidator(PoseValidator):
         python test_bev.py --weights best.pt --data soccernet-synloc.yaml --split val
     """
 
-    def __init__(self, dataloader=None, save_dir=None, args=None, _callbacks=None):
-        """Initialize BEVPoseValidator."""
+    def __init__(self, dataloader=None, save_dir=None, args=None, _callbacks=None, phase="val"):
+        """Initialize BEVPoseValidator.
+
+        Args:
+            phase: Evaluation phase — 'val', 'test', or 'challenge'.  Kept out
+                   of the ``args`` dict so ultralytics get_cfg() does not reject
+                   it as an unknown key.
+        """
+        # Store phase BEFORE super().__init__ so eval_json can see it even if
+        # called during the parent's initialisation chain.
+        self.phase = phase
         super().__init__(dataloader, save_dir, args, _callbacks)
-        # phase will be set to 'val', 'test', or 'challenge' by test_bev.py
-        self.phase = getattr(self.args, "phase", "val")
 
     def init_metrics(self, model: torch.nn.Module) -> None:
         """Initialize metrics, reading custom sigmas from dataset config."""
@@ -157,8 +164,13 @@ class BEVPoseValidator(PoseValidator):
 
         Mirrors mmpose coco_metric._do_python_keypoint_eval() lines 565-609.
         """
-        stats_file = self.save_dir / f"{prefix}_{self.phase}_stats.json"
+        # Both paths use the same name when phase="val":
+        #   stats_file      = {prefix}_val_stats.json
+        #   val_stats_file  = {prefix}_val_stats.json
+        # We always write to val_stats_file so the test phase can load it.
+        # For test/challenge we additionally write a phase-specific copy.
         val_stats_file = self.save_dir / f"{prefix}_val_stats.json"
+        stats_file = self.save_dir / f"{prefix}_{self.phase}_stats.json"
 
         coco_eval = EvalClass(coco_gt, coco_dt, "bbox", sigmas, use_area=True)
 
@@ -198,14 +210,15 @@ class BEVPoseValidator(PoseValidator):
 
         result = dict(zip(stats_names, coco_eval.stats))
 
-        # Save per-phase stats JSON so test phase can load score_threshold from val
-        with open(stats_file, "w") as f:
+        # Always write val_stats_file so the test/challenge phase can load score_threshold.
+        # When phase="val", stats_file IS val_stats_file — write once, no copy needed.
+        with open(val_stats_file, "w") as f:
             json.dump({"stats": result}, f, indent=4)
+        LOGGER.info(f"Saved val stats → {val_stats_file}")
 
-        # Also save as val_stats so test_bev.py can find it by the canonical name
-        if self.phase == "val":
-            shutil.copyfile(stats_file, val_stats_file)
-            LOGGER.info(f"Saved val stats → {val_stats_file}")
+        # For test/challenge, also write a separate phase-stamped copy for auditing.
+        if self.phase != "val" and stats_file != val_stats_file:
+            shutil.copyfile(val_stats_file, stats_file)
 
         LOGGER.info(f"\n{prefix.upper()} LocSim results ({self.phase}):")
         for k, v in result.items():
