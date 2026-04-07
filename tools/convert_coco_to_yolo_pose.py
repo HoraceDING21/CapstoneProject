@@ -6,6 +6,12 @@ Usage:
         --output-dir /path/to/soccernet-synloc-yolo \
         --splits train val test
 
+    # With occlusion-aware weighting (recommended for BEV task):
+    python tools/convert_coco_to_yolo_pose.py \
+        --coco-dir /path/to/soccernet-dataset \
+        --output-dir /path/to/soccernet-synloc-yolo \
+        --splits train val test --occ-alpha 2.0
+
 The COCO dataset is expected to have:
     coco-dir/
     ├── annotations/
@@ -34,7 +40,32 @@ from collections import defaultdict
 from pathlib import Path
 
 
-def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_keypoints: int = 2, copy_images: bool = False):
+def compute_occlusion_weight(seg_area: float, bbox_area: float, alpha: float = 2.0,
+                             ratio_min: float = 0.28, ratio_max: float = 0.64) -> float:
+    """Compute per-instance occlusion weight from seg_area / bbox_area ratio.
+
+    Occluded players have small seg_area relative to bbox_area → low ratio → high weight.
+
+    Args:
+        seg_area:   Pixel-level segmentation area from COCO annotation.
+        bbox_area:  Bounding box area (w * h).
+        alpha:      Strength of the occlusion boost.  0 = uniform weighting (all get 1.0),
+                    2.0 = most-occluded gets ~3x weight of least-occluded.
+        ratio_min:  Ratio values below this are clamped (fully occluded).
+        ratio_max:  Ratio values above this are clamped (fully visible).
+
+    Returns:
+        Occlusion weight ≥ 1.0 (higher = more occluded = harder sample).
+    """
+    if bbox_area <= 0:
+        return 1.0
+    ratio = max(ratio_min, min(ratio_max, seg_area / bbox_area))
+    normalized = (ratio - ratio_min) / (ratio_max - ratio_min)  # 0 (occluded) → 1 (visible)
+    return 1.0 + alpha * (1.0 - normalized)
+
+
+def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_keypoints: int = 2,
+                              copy_images: bool = False, occ_alpha: float = 0.0):
     coco_dir = Path(coco_dir)
     output_dir = Path(output_dir)
 
@@ -95,6 +126,14 @@ def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_
                 w_norm = max(0, min(1, w_norm))
                 h_norm = max(0, min(1, h_norm))
 
+                # Occlusion-aware weight: seg_area / bbox_area as proxy
+                bbox_area = w * h
+                seg_area = ann.get("area", bbox_area)
+                if occ_alpha > 0:
+                    occ_w = compute_occlusion_weight(seg_area, bbox_area, alpha=occ_alpha)
+                else:
+                    occ_w = None  # no occlusion weighting, use raw visibility flag
+
                 raw_kpts = ann.get("keypoints", [])
 
                 # Normalise to a list of (x, y, v) tuples regardless of storage format:
@@ -111,19 +150,18 @@ def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_
                 kpt_values = []
                 for ki in range(min(len(kpt_triples), num_keypoints)):
                     kx, ky, kv = kpt_triples[ki]
-                    kpt_values.extend([kx / img_w, ky / img_h, int(kv)])
+                    # When occ_alpha > 0, replace the integer visibility flag with the
+                    # continuous occlusion weight.  This is always > 0 for labeled
+                    # keypoints so the YOLO loss mask (v != 0) still works correctly.
+                    v = occ_w if (occ_w is not None and kv > 0) else float(kv)
+                    kpt_values.extend([kx / img_w, ky / img_h, v])
 
                 while len(kpt_values) < num_keypoints * 3:
-                    kpt_values.extend([0.0, 0.0, 0])
+                    kpt_values.extend([0.0, 0.0, 0.0])
 
                 parts = [str(cat_id)]
                 parts.extend([f"{v:.6f}" for v in [x_center, y_center, w_norm, h_norm]])
-                # kpt_values layout: [kx, ky, kv, kx, ky, kv, ...]
-                # kx/ky are floats (normalised coords), kv is int (visibility flag)
-                parts.extend([
-                    str(int(v)) if i % 3 == 2 else f"{v:.6f}"
-                    for i, v in enumerate(kpt_values)
-                ])
+                parts.extend([f"{v:.6f}" for v in kpt_values])
                 lines.append(" ".join(parts))
 
             with open(label_path, "w") as f:
@@ -144,6 +182,11 @@ if __name__ == "__main__":
     parser.add_argument("--splits", nargs="+", default=["train", "val", "test"], help="Dataset splits to convert")
     parser.add_argument("--num-keypoints", type=int, default=2, help="Number of keypoints per annotation")
     parser.add_argument("--copy-images", action="store_true", help="Copy images instead of creating symlinks")
+    parser.add_argument("--occ-alpha", type=float, default=0.0,
+                        help="Occlusion-aware weight strength (0=off, 2.0=recommended). "
+                             "Replaces visibility flag with continuous weight derived from "
+                             "seg_area/bbox_area ratio: more occluded → higher weight.")
     args = parser.parse_args()
 
-    convert_coco_to_yolo_pose(args.coco_dir, args.output_dir, args.splits, args.num_keypoints, args.copy_images)
+    convert_coco_to_yolo_pose(args.coco_dir, args.output_dir, args.splits, args.num_keypoints,
+                              args.copy_images, args.occ_alpha)

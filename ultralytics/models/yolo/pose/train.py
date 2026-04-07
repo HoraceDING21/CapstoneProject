@@ -84,6 +84,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
         super().set_model_attributes()
         self.model.kpt_shape = self.data["kpt_shape"]
         self.model.kpt_sigmas = self.data.get("sigmas")
+        self.model.use_occ_weights = self.data.get("use_occ_weights", False)
         kpt_names = self.data.get("kpt_names")
         if not kpt_names:
             names = list(map(str, range(self.model.kpt_shape[0])))

@@ -78,6 +78,8 @@ def parse_args():
                         help="Dataloader workers")
     parser.add_argument("--save-dir", type=str, default=None,
                         help="Directory to save results (default: auto from weights path)")
+    parser.add_argument("--rect", action="store_true",
+                        help="Rectangular inference — pad to actual aspect ratio instead of square")
     parser.add_argument("--run-val-first", action="store_true",
                         help="Automatically run val before test/challenge to get score_threshold")
     return parser.parse_args()
@@ -89,7 +91,7 @@ def parse_args():
 
 def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
              conf: float, iou: float, device: str, workers: int,
-             save_dir: Path) -> dict:
+             save_dir: Path, rect: bool = False) -> dict:
     """Run one evaluation pass for the given split.
 
     Mirrors a single runner.val() or runner.test() call in mmpose/tools/test.py.
@@ -105,6 +107,7 @@ def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
         device:   Torch device string or None for auto.
         workers:  Dataloader workers.
         save_dir: Directory to write outputs to.
+        rect:     Rectangular batching (pad to aspect ratio, not square).
 
     Returns:
         dict of metric name → value (includes LocSim metrics if sskit is installed).
@@ -124,6 +127,7 @@ def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
         save_json=True,
         save_dir=str(save_dir),
         verbose=True,
+        rect=rect,
     )
     if device is not None:
         val_args["device"] = device
@@ -213,7 +217,7 @@ def main():
             weights=args.weights, data=args.data, split="val",
             imgsz=args.imgsz, batch=args.batch, conf=args.conf,
             iou=args.iou, device=args.device, workers=args.workers,
-            save_dir=val_save_dir,
+            save_dir=val_save_dir, rect=args.rect,
         )
         # Copy val_stats files into save_dir so BEVPoseValidator can find them
         for stats_file in val_save_dir.glob("*_val_stats.json"):
@@ -229,7 +233,7 @@ def main():
         weights=args.weights, data=args.data, split=args.split,
         imgsz=args.imgsz, batch=args.batch, conf=args.conf,
         iou=args.iou, device=args.device, workers=args.workers,
-        save_dir=save_dir,
+        save_dir=save_dir, rect=args.rect,
     )
 
     # ── Step 3: package submission zip (for test / challenge) ─────────────────

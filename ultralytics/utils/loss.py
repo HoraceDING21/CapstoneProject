@@ -634,6 +634,7 @@ class v8PoseLoss(v8DetectionLoss):
         super().__init__(model, tal_topk, tal_topk2)
         self.kpt_shape = model.model[-1].kpt_shape
         self.bce_pose = nn.BCEWithLogitsLoss()
+        self.use_occ_weights = getattr(model, "use_occ_weights", False)
         is_pose = self.kpt_shape == [17, 3]
         nkpt = self.kpt_shape[0]  # number of keypoints
         if hasattr(model, "kpt_sigmas") and model.kpt_sigmas is not None:
@@ -780,11 +781,23 @@ class v8PoseLoss(v8DetectionLoss):
             gt_kpt = selected_keypoints[masks]
             area = xyxy2xywh(target_bboxes[masks])[:, 2:].prod(1, keepdim=True)
             pred_kpt = pred_kpts[masks]
-            kpt_mask = gt_kpt[..., 2] != 0 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
-            kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_mask, area)  # pose loss
+
+            if gt_kpt.shape[-1] == 3:
+                kpt_vis = gt_kpt[..., 2]
+                kpt_mask = kpt_vis != 0  # binary mask — always needed for BCE objectness
+                # When use_occ_weights is on, the visibility channel carries continuous
+                # occlusion weights (>0 for labeled keypoints).  Pass these as-is so the
+                # KeypointLoss multiplies per-keypoint OKS by the weight, giving harder
+                # (more occluded) instances a stronger gradient signal.
+                kpt_weight = kpt_vis if self.use_occ_weights else kpt_mask.float()
+            else:
+                kpt_weight = torch.full_like(gt_kpt[..., 0], 1.0)
+                kpt_mask = kpt_weight.bool()
+
+            kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_weight, area)
 
             if pred_kpt.shape[-1] == 3:
-                kpts_obj_loss = self.bce_pose(pred_kpt[..., 2], kpt_mask.float())  # keypoint obj loss
+                kpts_obj_loss = self.bce_pose(pred_kpt[..., 2], kpt_mask.float())
 
         return kpts_loss, kpts_obj_loss
 
@@ -946,14 +959,22 @@ class PoseLoss26(v8PoseLoss):
             gt_kpt = selected_keypoints[masks]
             area = xyxy2xywh(target_bboxes[masks])[:, 2:].prod(1, keepdim=True)
             pred_kpt = pred_kpts[masks]
-            kpt_mask = gt_kpt[..., 2] != 0 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
-            kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_mask, area)  # pose loss
+
+            if gt_kpt.shape[-1] == 3:
+                kpt_vis = gt_kpt[..., 2]
+                kpt_mask = kpt_vis != 0
+                kpt_weight = kpt_vis if self.use_occ_weights else kpt_mask.float()
+            else:
+                kpt_weight = torch.full_like(gt_kpt[..., 0], 1.0)
+                kpt_mask = kpt_weight.bool()
+
+            kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_weight, area)
 
             if self.rle_loss is not None and (pred_kpt.shape[-1] == 4 or pred_kpt.shape[-1] == 5):
                 rle_loss = self.calculate_rle_loss(pred_kpt, gt_kpt, kpt_mask)
                 rle_loss = rle_loss.clamp(min=0)
             if pred_kpt.shape[-1] == 3 or pred_kpt.shape[-1] == 5:
-                kpts_obj_loss = self.bce_pose(pred_kpt[..., 2], kpt_mask.float())  # keypoint obj loss
+                kpts_obj_loss = self.bce_pose(pred_kpt[..., 2], kpt_mask.float())
 
         return kpts_loss, kpts_obj_loss, rle_loss
 

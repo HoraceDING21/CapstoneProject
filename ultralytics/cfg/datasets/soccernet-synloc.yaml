@@ -31,6 +31,12 @@ flip_idx: [0, 1] # no left-right symmetry for midline keypoints
 # OKS sigmas for the 2 keypoints (from sskit/Spiideo SoccerNet metainfo)
 sigmas: [0.089, 0.089]
 
+# Occlusion-aware loss weighting.  When true, the keypoint visibility channel
+# carries continuous occlusion weights (from convert_coco_to_yolo_pose.py --occ-alpha)
+# instead of binary 0/1 flags.  Heavier weight on occluded players forces the
+# model to learn to infer keypoint positions from partial observations.
+use_occ_weights: true
+
 # Classes
 names:
   0: person

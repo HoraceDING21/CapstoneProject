@@ -81,7 +81,8 @@ def parse_args():
     # ── common training args ──────────────────────────────────────────
     p.add_argument("--device", type=str, default=None)
     p.add_argument("--workers", type=int, default=8)
-    p.add_argument("--project", type=str, default="runs/pose-bev")
+    p.add_argument("--project", type=str, default=None,
+                   help="Project dir (default: YOLO saves to runs/pose/<name>)")
     p.add_argument("--name", type=str, default=None)
     p.add_argument("--resume", action="store_true",
                    help="Resume training from last checkpoint of the current stage")
@@ -111,13 +112,14 @@ def _shared_train_args(args):
         data=args.data,
         imgsz=args.imgsz,
         workers=args.workers,
-        project=args.project,
         pose=12.0,
         kobj=1.0,
         close_mosaic=10,
         rect=args.rect,
         cos_lr=args.cos_lr,
     )
+    if args.project is not None:
+        cfg["project"] = args.project
     if args.device is not None:
         cfg["device"] = args.device
     return cfg
@@ -154,7 +156,9 @@ def run_stage1(args):
 
     results = model.train(**cfg)
 
-    best_pt = Path(args.project) / stage1_name / "weights" / "best.pt"
+    # Use the actual save_dir from training results — YOLO may prepend
+    # 'runs/<task>/' to args.project internally, so do not hardcode the path.
+    best_pt = Path(results.save_dir) / "weights" / "best.pt"
     print(f"\nStage 1 complete. Best weights: {best_pt}")
     return str(best_pt)
 
@@ -188,7 +192,7 @@ def run_stage2(args, stage1_weights):
 
     results = model.train(**cfg)
 
-    best_pt = Path(args.project) / stage2_name / "weights" / "best.pt"
+    best_pt = Path(results.save_dir) / "weights" / "best.pt"
     print(f"\nStage 2 complete. Best weights: {best_pt}")
     return results
 
