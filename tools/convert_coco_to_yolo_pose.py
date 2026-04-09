@@ -68,6 +68,12 @@ def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_
                               copy_images: bool = False, occ_alpha: float = 0.0):
     coco_dir = Path(coco_dir)
     output_dir = Path(output_dir)
+    src_ann_dir = coco_dir / "annotations"
+    dst_ann_dir = output_dir / "annotations"
+    if src_ann_dir.exists():
+        dst_ann_dir.mkdir(parents=True, exist_ok=True)
+        for ann_json in src_ann_dir.glob("*.json"):
+            shutil.copy2(ann_json, dst_ann_dir / ann_json.name)
 
     for split in splits:
         ann_file = coco_dir / "annotations" / f"{split}.json"

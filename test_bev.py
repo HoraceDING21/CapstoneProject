@@ -82,6 +82,21 @@ def parse_args():
                         help="Rectangular inference — pad to actual aspect ratio instead of square")
     parser.add_argument("--run-val-first", action="store_true",
                         help="Automatically run val before test/challenge to get score_threshold")
+    parser.add_argument(
+        "--run-val-first-with-postprocess",
+        action="store_true",
+        help=(
+            "When used with --run-val-first and --bev-postprocess-stats, run the warm-up VAL pass with "
+            "y-band postprocess enabled. Default behavior runs VAL without postprocess to keep the original "
+            "score_threshold estimation."
+        ),
+    )
+    parser.add_argument(
+        "--bev-postprocess-stats",
+        type=str,
+        default=None,
+        help="Optional path to BEV val-calibrated y-band post-process stats JSON.",
+    )
     return parser.parse_args()
 
 
@@ -91,7 +106,7 @@ def parse_args():
 
 def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
              conf: float, iou: float, device: str, workers: int,
-             save_dir: Path, rect: bool = False) -> dict:
+             save_dir: Path, rect: bool = False, bev_postprocess_stats: str | None = None) -> dict:
     """Run one evaluation pass for the given split.
 
     Mirrors a single runner.val() or runner.test() call in mmpose/tools/test.py.
@@ -108,6 +123,7 @@ def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
         workers:  Dataloader workers.
         save_dir: Directory to write outputs to.
         rect:     Rectangular batching (pad to aspect ratio, not square).
+        bev_postprocess_stats: Optional path to BEV post-processing stats JSON.
 
     Returns:
         dict of metric name → value (includes LocSim metrics if sskit is installed).
@@ -134,7 +150,7 @@ def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
 
     # phase is passed separately — not inside val_args — because ultralytics
     # get_cfg() rejects any key not in its known argument schema.
-    validator = BEVPoseValidator(args=val_args, phase=split)
+    validator = BEVPoseValidator(args=val_args, phase=split, bev_postprocess_stats=bev_postprocess_stats)
     validator(model=model.model)
 
     return validator.metrics
@@ -213,11 +229,18 @@ def main():
         LOGGER.info("=" * 60)
         val_save_dir = save_dir.parent / "val"
         val_save_dir.mkdir(parents=True, exist_ok=True)
+        val_bev_stats = args.bev_postprocess_stats
+        if args.bev_postprocess_stats and not args.run_val_first_with_postprocess:
+            LOGGER.info(
+                "run-val-first: temporarily disabling BEV postprocess on VAL so score_threshold "
+                "stays consistent with the original inference pipeline."
+            )
+            val_bev_stats = None
         evaluate(
             weights=args.weights, data=args.data, split="val",
             imgsz=args.imgsz, batch=args.batch, conf=args.conf,
             iou=args.iou, device=args.device, workers=args.workers,
-            save_dir=val_save_dir, rect=args.rect,
+            save_dir=val_save_dir, rect=args.rect, bev_postprocess_stats=val_bev_stats,
         )
         # Copy val_stats files into save_dir so BEVPoseValidator can find them
         for stats_file in val_save_dir.glob("*_val_stats.json"):
@@ -233,7 +256,7 @@ def main():
         weights=args.weights, data=args.data, split=args.split,
         imgsz=args.imgsz, batch=args.batch, conf=args.conf,
         iou=args.iou, device=args.device, workers=args.workers,
-        save_dir=save_dir, rect=args.rect,
+        save_dir=save_dir, rect=args.rect, bev_postprocess_stats=args.bev_postprocess_stats,
     )
 
     # ── Step 3: package submission zip (for test / challenge) ─────────────────
