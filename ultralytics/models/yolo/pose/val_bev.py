@@ -13,8 +13,6 @@
 from __future__ import annotations
 
 import json
-import shutil
-import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +21,6 @@ import torch
 from xtcocotools.coco import COCO
 
 from ultralytics.utils import LOGGER
-from ultralytics.utils.metrics import OKS_SIGMA
 
 from .postprocess_bev import PositionBandPostProcessor
 from .val import PoseValidator
@@ -69,12 +66,10 @@ class BEVPoseValidator(PoseValidator):
         self.phase = phase
         self.bev_postprocess_stats = Path(bev_postprocess_stats) if bev_postprocess_stats else None
         self.bev_postprocessor: PositionBandPostProcessor | None = None
-        self._pp_stage_totals: dict[str, int] = {"input": 0, "band_conf": 0, "rescue_kpt": 0, "final": 0}
-        self._pp_stage_eval_totals: dict[str, int] = {"input": 0, "band_conf": 0, "rescue_kpt": 0, "final": 0}
+        self._pp_stage_totals: dict[str, int] = {"input": 0, "valid_position": 0, "kept": 0}
         self._pp_num_images = 0
         self._pp_last_thresholds: dict[str, float] = {}
         self._analysis_score_threshold: float | None = None
-        self._final_prediction_threshold: float | None = None
         self._analysis_score_input = 0
         self._analysis_score_keep = 0
         super().__init__(dataloader, save_dir, args, _callbacks)
@@ -86,7 +81,6 @@ class BEVPoseValidator(PoseValidator):
         self.args.save_json = True
         self._init_bev_postprocessor()
         self._analysis_score_threshold = self._resolve_eval_score_threshold_for_analysis()
-        self._final_prediction_threshold = self._resolve_final_prediction_threshold()
 
     def update_metrics(self, preds: list[dict[str, torch.Tensor]], batch: dict[str, Any]) -> None:
         """Update metrics with optional BEV y-band post-processing."""
@@ -105,14 +99,6 @@ class BEVPoseValidator(PoseValidator):
                 self._accumulate_postprocess_debug(pp_res)
                 predn = self._index_pred(predn, pp_res.keep_indices)
                 predn_scaled = self._index_pred(predn_scaled, pp_res.keep_indices)
-            elif (
-                self._final_prediction_threshold is not None
-                and predn["cls"].shape[0] > 0
-                and predn_scaled is not None
-            ):
-                keep = torch.nonzero(predn["conf"] >= self._final_prediction_threshold, as_tuple=False).squeeze(-1)
-                predn = self._index_pred(predn, keep)
-                predn_scaled = self._index_pred(predn_scaled, keep)
 
             cls = pbatch["cls"].cpu().numpy()
             no_pred = predn["cls"].shape[0] == 0
@@ -235,19 +221,19 @@ class BEVPoseValidator(PoseValidator):
             return
         if not self.bev_postprocess_stats.exists():
             LOGGER.warning(
-                f"BEV postprocess stats file not found: {self.bev_postprocess_stats}. "
-                "BEV y-band post-processing is disabled."
+                f"BEV band calibration file not found: {self.bev_postprocess_stats}. "
+                "BEV y-band filtering is disabled."
             )
             return
         try:
             self.bev_postprocessor = PositionBandPostProcessor.from_file(self.bev_postprocess_stats)
         except Exception as e:
-            LOGGER.warning(f"Failed to load BEV postprocess stats: {e}. BEV y-band post-processing is disabled.")
+            LOGGER.warning(f"Failed to load BEV band calibration: {e}. BEV y-band filtering is disabled.")
             self.bev_postprocessor = None
             return
 
         self.bev_postprocessor.set_base_score_threshold(self._resolve_base_score_threshold())
-        LOGGER.info(f"Enabled BEV y-band calibrated post-processing from {self.bev_postprocess_stats}")
+        LOGGER.info(f"Enabled BEV y-band filtering from {self.bev_postprocess_stats}")
 
     def _resolve_base_score_threshold(self) -> float:
         """Resolve score threshold baseline used by Stage 1."""
@@ -288,33 +274,18 @@ class BEVPoseValidator(PoseValidator):
             return float(self.bev_postprocessor.base_score_threshold)
         return None
 
-    def _resolve_final_prediction_threshold(self) -> float | None:
-        """Resolve threshold used to prefilter exported predictions.
-
-        For baseline test/challenge runs, we want predictions.json/results.json to
-        contain the same detections that participate in LocSim evaluation.
-        """
-        if self.phase not in ("test", "challenge"):
-            return None
-        if self.bev_postprocessor is not None:
-            return None
-        return self._analysis_score_threshold
-
     def _resolve_evaluator_threshold_for_filtered_predictions(self) -> float:
-        """Return a reporting threshold that preserves the filtered prediction set.
+        """Return a compatibility threshold for filtered prediction sets.
 
         The evaluator still expects one scalar ``score_threshold`` for its
-        thresholded point metrics (precision/recall/f1). We choose a threshold
-        that does not drop any prediction already kept by runtime filtering:
-          - baseline: the same global threshold used to filter predictions
-          - y-band mode: the minimum threshold configured by postprocess
+        thresholded point metrics (precision/recall/f1). Band-wise filtering is
+        not representable by a single scalar, so we use the minimum active local
+        threshold only as a compatibility value for the evaluator output.
         """
         if self.bev_postprocessor is not None:
             if self._pp_last_thresholds:
                 return float(self._pp_last_thresholds.get("local_threshold_min", 0.0))
             return 0.0
-        if self._final_prediction_threshold is not None:
-            return float(self._final_prediction_threshold)
         return 0.0
 
     @staticmethod
@@ -329,9 +300,6 @@ class BEVPoseValidator(PoseValidator):
         self._pp_num_images += 1
         for key in self._pp_stage_totals:
             self._pp_stage_totals[key] += int(pp_res.stage_counts.get(key, 0))
-        if pp_res.stage_counts_eval:
-            for key in self._pp_stage_eval_totals:
-                self._pp_stage_eval_totals[key] += int(pp_res.stage_counts_eval.get(key, 0))
         if pp_res.stage_thresholds:
             self._pp_last_thresholds = dict(pp_res.stage_thresholds)
 
@@ -365,38 +333,23 @@ class BEVPoseValidator(PoseValidator):
         totals = self._pp_stage_totals
         n_in = max(totals["input"], 1)
         msg = (
-            "BEV calibrated-band post-process retention (all detections): "
+            "BEV band-calibrated filtering retention: "
             f"input={totals['input']}, "
-            f"band_conf={totals['band_conf']} ({totals['band_conf'] / n_in:.3f}), "
-            f"rescue_kpt={totals['rescue_kpt']} ({totals['rescue_kpt'] / n_in:.3f}), "
-            f"final={totals['final']} ({totals['final'] / n_in:.3f})"
+            f"valid_position={totals['valid_position']} ({totals['valid_position'] / n_in:.3f}), "
+            f"kept={totals['kept']} ({totals['kept'] / n_in:.3f})"
         )
         if self._pp_last_thresholds:
             msg += (
                 ", thresholds="
-                f"base:{self._pp_last_thresholds.get('base_score_threshold', 0.0):.4f}, "
+                f"global:{self._pp_last_thresholds.get('global_score_threshold', 0.0):.4f}, "
+                f"fallback:{self._pp_last_thresholds.get('fallback_score_threshold', 0.0):.4f}, "
                 f"local_min:{self._pp_last_thresholds.get('local_threshold_min', 0.0):.4f}, "
                 f"local_max:{self._pp_last_thresholds.get('local_threshold_max', 0.0):.4f}, "
-                f"band_ratio:[{self._pp_last_thresholds.get('band_low_ratio', 0.0):.3f},"
-                f"{self._pp_last_thresholds.get('band_high_ratio', 0.0):.3f}], "
-                f"num_bands:{int(self._pp_last_thresholds.get('num_bands', 0.0))}, "
-                f"fallback:{self._pp_last_thresholds.get('fallback_threshold_ratio', 0.0):.3f}, "
-                f"rescue_kpt:{self._pp_last_thresholds.get('rescue_keypoint_ratio', 0.0):.3f}"
+                f"band_low:{self._pp_last_thresholds.get('band_low_threshold', 0.0):.4f}, "
+                f"band_high:{self._pp_last_thresholds.get('band_high_threshold', 0.0):.4f}, "
+                f"num_bands:{int(self._pp_last_thresholds.get('num_bands', 0.0))}"
             )
         LOGGER.info(msg)
-
-        if self._pp_last_thresholds and self._pp_stage_eval_totals["input"] > 0:
-            eval_totals = self._pp_stage_eval_totals
-            eval_in = max(eval_totals["input"], 1)
-            base_th = self._pp_last_thresholds.get("base_score_threshold", 0.0)
-            LOGGER.info(
-                "BEV calibrated-band post-process retention @conf>=base: "
-                f"input={eval_totals['input']}, "
-                f"band_conf={eval_totals['band_conf']} ({eval_totals['band_conf'] / eval_in:.3f}), "
-                f"rescue_kpt={eval_totals['rescue_kpt']} ({eval_totals['rescue_kpt'] / eval_in:.3f}), "
-                f"final={eval_totals['final']} ({eval_totals['final'] / eval_in:.3f}), "
-                f"base={base_th:.4f}"
-            )
 
     def _run_locsim(
         self,
@@ -420,22 +373,20 @@ class BEVPoseValidator(PoseValidator):
         val_stats_file = self.save_dir / f"{prefix}_val_stats.json"
         stats_file = self.save_dir / f"{prefix}_{self.phase}_stats.json"
         if self.bev_postprocessor is not None:
-            stats_file = self.save_dir / f"{prefix}_{self.phase}_postprocess_stats.json"
-        elif self._final_prediction_threshold is not None:
-            stats_file = self.save_dir / f"{prefix}_{self.phase}_filtered_stats.json"
+            stats_file = self.save_dir / f"{prefix}_{self.phase}_band_stats.json"
 
         coco_eval = EvalClass(coco_gt, coco_dt, "bbox", sigmas, use_area=True)
 
         # For test/challenge: load score_threshold from val run (mirrors mmpose test.py line 177)
-        if self.bev_postprocessor is not None or self._final_prediction_threshold is not None:
+        if self.bev_postprocessor is not None:
             # In self-consistent mode, predictions.json already contains the
             # final filtered detections. Keep evaluator metrics aligned with
             # that set by using a threshold that all retained detections satisfy.
             eff_th = self._resolve_evaluator_threshold_for_filtered_predictions()
             coco_eval.params.score_threshold = eff_th
             LOGGER.info(
-                f"Using runtime-filtered predictions for {prefix}; "
-                f"setting evaluator score_threshold={eff_th:.4f} to match the retained prediction set."
+                f"Using band-filtered predictions for {prefix}; "
+                f"setting evaluator score_threshold={eff_th:.4f} as a compatibility value."
             )
         elif self.phase in ("test", "challenge"):
             if not val_stats_file.exists():
@@ -472,23 +423,15 @@ class BEVPoseValidator(PoseValidator):
 
         result = dict(zip(stats_names, coco_eval.stats))
 
-        if self.bev_postprocessor is not None or self._final_prediction_threshold is not None:
-            # Preserve the original val-derived threshold file. In self-consistent
-            # mode, phase-specific filtered stats should not overwrite the base
-            # locsim_val_stats.json needed for future runs.
+        if self.bev_postprocessor is not None:
             with open(stats_file, "w") as f:
                 json.dump({"stats": result}, f, indent=4)
-            LOGGER.info(f"Saved filtered/postprocess stats → {stats_file}")
+            LOGGER.info(f"Saved band-filtered stats → {stats_file}")
         else:
-            # Always write val_stats_file so the test/challenge phase can load score_threshold.
-            # When phase="val", stats_file IS val_stats_file — write once, no copy needed.
-            with open(val_stats_file, "w") as f:
+            target_stats_file = val_stats_file if self.phase == "val" else stats_file
+            with open(target_stats_file, "w") as f:
                 json.dump({"stats": result}, f, indent=4)
-            LOGGER.info(f"Saved val stats → {val_stats_file}")
-
-            # For test/challenge, also write a separate phase-stamped copy for auditing.
-            if self.phase != "val" and stats_file != val_stats_file:
-                shutil.copyfile(val_stats_file, stats_file)
+            LOGGER.info(f"Saved stats → {target_stats_file}")
 
         LOGGER.info(f"\n{prefix.upper()} LocSim results ({self.phase}):")
         for k, v in result.items():

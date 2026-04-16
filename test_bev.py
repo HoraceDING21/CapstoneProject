@@ -15,13 +15,13 @@ LocSim evaluation is provided by sskit (pip install sskit>=0.2.0).
   - position_from_keypoint_index=1 → keypoint 1 (pelvis_ground) is the BEV position
 
 Usage examples:
-    # Step 1 – always run val first (gets optimal score_threshold):
+    # Validation only:
     python test_bev.py \\
         --weights runs/pose-bev/yolo11m-pose-bev-640/weights/best.pt \\
         --data    ultralytics/cfg/datasets/soccernet-synloc.yaml \\
         --split   val --imgsz 640
 
-    # Step 2 – run test (uses score_threshold from step 1):
+    # Test / challenge mirror mmpose/tools/test.py and auto-run val first:
     python test_bev.py \\
         --weights runs/pose-bev/yolo11m-pose-bev-640/weights/best.pt \\
         --data    ultralytics/cfg/datasets/soccernet-synloc.yaml \\
@@ -68,10 +68,12 @@ def parse_args():
                         help="Inference image size")
     parser.add_argument("--batch", type=int, default=32,
                         help="Inference batch size")
-    parser.add_argument("--conf", type=float, default=0.001,
-                        help="Confidence threshold for NMS")
-    parser.add_argument("--iou", type=float, default=0.7,
-                        help="IoU threshold for NMS")
+    parser.add_argument("--conf", type=float, default=0.01,
+                        help="Confidence threshold for NMS (matches mmpose score_thr)")
+    parser.add_argument("--iou", type=float, default=0.65,
+                        help="IoU threshold for NMS (matches mmpose nms_thr)")
+    parser.add_argument("--max-det", type=int, default=100000,
+                        help="Maximum detections per image after NMS (large default to mirror mmpose)")
     parser.add_argument("--device", type=str, default=None,
                         help="Device: 0, '0,1', 'cpu', etc.")
     parser.add_argument("--workers", type=int, default=8,
@@ -81,21 +83,12 @@ def parse_args():
     parser.add_argument("--rect", action="store_true",
                         help="Rectangular inference — pad to actual aspect ratio instead of square")
     parser.add_argument("--run-val-first", action="store_true",
-                        help="Automatically run val before test/challenge to get score_threshold")
-    parser.add_argument(
-        "--run-val-first-with-postprocess",
-        action="store_true",
-        help=(
-            "When used with --run-val-first and --bev-postprocess-stats, run the warm-up VAL pass with "
-            "y-band postprocess enabled. Default behavior runs VAL without postprocess to keep the original "
-            "score_threshold estimation."
-        ),
-    )
+                        help="Deprecated compatibility flag. Test/challenge already run val first automatically.")
     parser.add_argument(
         "--bev-postprocess-stats",
         type=str,
         default=None,
-        help="Optional path to BEV val-calibrated y-band post-process stats JSON.",
+        help="Optional path to BEV val-calibrated y-band calibration JSON.",
     )
     return parser.parse_args()
 
@@ -105,7 +98,7 @@ def parse_args():
 # ──────────────────────────────────────────────────────────────────────────────
 
 def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
-             conf: float, iou: float, device: str, workers: int,
+             conf: float, iou: float, max_det: int, device: str, workers: int,
              save_dir: Path, rect: bool = False, bev_postprocess_stats: str | None = None) -> dict:
     """Run one evaluation pass for the given split.
 
@@ -119,6 +112,7 @@ def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
         batch:    Inference batch size.
         conf:     Confidence threshold.
         iou:      IoU threshold for NMS.
+        max_det:  Maximum detections retained after NMS.
         device:   Torch device string or None for auto.
         workers:  Dataloader workers.
         save_dir: Directory to write outputs to.
@@ -139,6 +133,7 @@ def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
         batch=batch,
         conf=conf,
         iou=iou,
+        max_det=max_det,
         workers=workers,
         save_json=True,
         save_dir=str(save_dir),
@@ -222,24 +217,24 @@ def main():
     LOGGER.info(f"Saving results to {save_dir}")
 
     # ── Step 1: always run val first for test/challenge to get score_threshold ──
-    # Mirrors mmpose test.py lines 172-173:  runner.val(); runner.test()
-    if args.split in ("test", "challenge") and args.run_val_first:
+    # Mirrors mmpose test.py lines 172-173: runner.val(); runner.test()
+    run_val_first = args.run_val_first or args.split in ("test", "challenge")
+    if run_val_first and args.split in ("test", "challenge"):
         LOGGER.info("\n" + "=" * 60)
         LOGGER.info("Running VAL pass first (to obtain score_threshold) ...")
         LOGGER.info("=" * 60)
         val_save_dir = save_dir.parent / "val"
         val_save_dir.mkdir(parents=True, exist_ok=True)
-        val_bev_stats = args.bev_postprocess_stats
-        if args.bev_postprocess_stats and not args.run_val_first_with_postprocess:
+        val_bev_stats = None
+        if args.bev_postprocess_stats:
             LOGGER.info(
-                "run-val-first: temporarily disabling BEV postprocess on VAL so score_threshold "
-                "stays consistent with the original inference pipeline."
+                "run-val-first: disabling y-band calibration on the warm-up VAL pass so "
+                "the baseline global score_threshold stays consistent with mmpose."
             )
-            val_bev_stats = None
         evaluate(
             weights=args.weights, data=args.data, split="val",
             imgsz=args.imgsz, batch=args.batch, conf=args.conf,
-            iou=args.iou, device=args.device, workers=args.workers,
+            iou=args.iou, max_det=args.max_det, device=args.device, workers=args.workers,
             save_dir=val_save_dir, rect=args.rect, bev_postprocess_stats=val_bev_stats,
         )
         # Copy val_stats files into save_dir so BEVPoseValidator can find them
@@ -255,7 +250,7 @@ def main():
     metrics = evaluate(
         weights=args.weights, data=args.data, split=args.split,
         imgsz=args.imgsz, batch=args.batch, conf=args.conf,
-        iou=args.iou, device=args.device, workers=args.workers,
+        iou=args.iou, max_det=args.max_det, device=args.device, workers=args.workers,
         save_dir=save_dir, rect=args.rect, bev_postprocess_stats=args.bev_postprocess_stats,
     )
 
@@ -263,7 +258,7 @@ def main():
     if args.split in ("test", "challenge"):
         # Look for val_stats in the val dir if --run-val-first was used,
         # otherwise expect them already in save_dir
-        if args.run_val_first:
+        if run_val_first:
             val_stats_src = save_dir.parent / "val" / "locsim_val_stats.json"
             val_stats_dst = save_dir / "locsim_val_stats.json"
             if val_stats_src.exists() and not val_stats_dst.exists():

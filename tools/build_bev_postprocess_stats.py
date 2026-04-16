@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build val-calibrated y-band threshold stats for BEV post-processing."""
+"""Build val-calibrated y-band score-threshold calibration for BEV inference."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def log_progress(message: str) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build BEV y-band threshold stats from val predictions.")
+    parser = argparse.ArgumentParser(description="Build BEV y-band calibration from val predictions.")
     parser.add_argument("--data", type=str, required=True, help="Dataset YAML path (e.g. soccernet-synloc.yaml).")
     parser.add_argument(
         "--ann",
@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=str,
         default=None,
-        help="Output JSON path. Defaults to <data.path>/annotations/bev_postprocess_stats.json.",
+        help="Output JSON path. Defaults to <data.path>/annotations/bev_band_calibration.json.",
     )
     parser.add_argument(
         "--position-keypoint-index",
@@ -122,18 +122,7 @@ def parse_args() -> argparse.Namespace:
         default=1.00,
         help="Fallback ratio for sparse or uncalibrated bands.",
     )
-    parser.add_argument(
-        "--rescue-keypoint-ratio",
-        type=float,
-        default=0.90,
-        help="Minimum keypoint-score ratio relative to the global val threshold for rescued detections.",
-    )
-    parser.add_argument(
-        "--sweep-steps",
-        type=int,
-        default=31,
-        help="Maximum number of candidate thresholds evaluated per band during explicit threshold sweep.",
-    )
+    parser.add_argument("--sweep-steps", type=int, default=31, help="Maximum number of candidate thresholds per band.")
     return parser.parse_args()
 
 
@@ -322,6 +311,31 @@ def candidate_thresholds(
     return sorted(candidates)
 
 
+def filter_predictions_by_band_thresholds(
+    preds: list[dict[str, Any]],
+    image_wh_by_id: dict[Any, tuple[float, float]],
+    position_keypoint_index: int,
+    pos_bounds: dict[str, float],
+    y_bands: int,
+    band_thresholds: dict[int, float],
+    fallback_score_threshold: float,
+) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for pred in preds:
+        image_id = pred.get("image_id")
+        image_wh = image_wh_by_id.get(image_id)
+        threshold = float(fallback_score_threshold)
+        if image_wh is not None:
+            pos2d = image_position_norm_from_prediction(pred, position_keypoint_index, image_wh)
+            if pos2d is not None:
+                band = band_index(pos2d[1], pos_bounds["y_min"], pos_bounds["y_max"], y_bands)
+                threshold = float(band_thresholds.get(band, fallback_score_threshold))
+        score = pred.get("score")
+        if score is not None and float(score) >= threshold:
+            filtered.append(pred)
+    return filtered
+
+
 def sweep_best_band_threshold(
     ann_payload: dict[str, Any],
     preds: list[dict[str, Any]],
@@ -394,7 +408,7 @@ def main() -> None:
 
     ann_path = Path(args.ann) if args.ann else data_root / "annotations" / "val.json"
     pred_path = Path(args.predictions)
-    out_path = Path(args.output) if args.output else data_root / "annotations" / "bev_postprocess_stats.json"
+    out_path = Path(args.output) if args.output else data_root / "annotations" / "bev_band_calibration.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     log_progress(f"Loading val annotations: {ann_path}")
@@ -471,6 +485,8 @@ def main() -> None:
     log_progress(f"Global score_threshold = {global_threshold:.4f}")
 
     band_threshold_lookup: dict[str, dict[str, float | int | str]] = {}
+    band_thresholds: dict[int, float] = {}
+    band_threshold_ratios: dict[int, float] = {}
     calibrated_bands = 0
     fallback_bands = 0
     skip_low_gt = 0
@@ -482,6 +498,7 @@ def main() -> None:
         gt_count = int(gt_count_by_band.get(band, 0))
         pred_count = int(pred_count_by_band.get(band, 0))
         threshold_ratio = float(args.fallback_threshold_ratio)
+        score_threshold = float(global_threshold * threshold_ratio)
         learned_threshold = None
         source = "fallback"
 
@@ -510,11 +527,13 @@ def main() -> None:
                 band_name,
             )
             if learned_threshold is not None and learned_threshold > 0:
+                score_threshold = float(learned_threshold)
                 threshold_ratio = float(learned_threshold / global_threshold)
                 threshold_ratio = min(max(threshold_ratio, args.min_threshold_ratio), args.max_threshold_ratio)
+                score_threshold = float(global_threshold * threshold_ratio)
                 source = "val_calibrated"
                 calibrated_bands += 1
-                log_progress(f"  [{band_name}] calibrated ratio={threshold_ratio:.4f}")
+                log_progress(f"  [{band_name}] calibrated threshold={score_threshold:.4f} ratio={threshold_ratio:.4f}")
             else:
                 skip_no_threshold += 1
                 log_progress(f"  [{band_name}] fallback: no usable threshold learned")
@@ -522,7 +541,10 @@ def main() -> None:
         if source == "fallback":
             fallback_bands += 1
 
+        band_thresholds[band] = float(score_threshold)
+        band_threshold_ratios[band] = float(threshold_ratio)
         band_threshold_lookup[str(band)] = {
+            "score_threshold": float(score_threshold),
             "threshold_ratio": float(threshold_ratio),
             "gt_count": int(gt_count),
             "pred_count": int(pred_count),
@@ -531,28 +553,59 @@ def main() -> None:
         if learned_threshold is not None:
             band_threshold_lookup[str(band)]["learned_threshold"] = float(learned_threshold)
 
+    fallback_score_threshold = float(global_threshold * args.fallback_threshold_ratio)
+    filtered_preds = filter_predictions_by_band_thresholds(
+        preds=preds,
+        image_wh_by_id=image_wh_by_id,
+        position_keypoint_index=args.position_keypoint_index,
+        pos_bounds=pos_bounds,
+        y_bands=args.y_bands,
+        band_thresholds=band_thresholds,
+        fallback_score_threshold=fallback_score_threshold,
+    )
+    filtered_stats = compute_locsim_stats(ann, filtered_preds, args.position_keypoint_index)
+    if filtered_stats:
+        log_progress(
+            "Band-filtered val summary: "
+            f"AP={filtered_stats['AP']:.4f}, "
+            f"precision={filtered_stats['precision']:.4f}, "
+            f"recall={filtered_stats['recall']:.4f}, "
+            f"f1={filtered_stats['f1']:.4f}, "
+            f"frame_accuracy={filtered_stats['frame_accuracy']:.4f}"
+        )
+    else:
+        log_progress("Band-filtered val summary: unavailable")
+
     payload = {
-        "version": 6,
+        "version": 7,
         "source_annotation": str(ann_path),
         "position_keypoint_index": int(args.position_keypoint_index),
         "global_score_threshold": float(global_threshold),
+        "base_score_threshold": float(global_threshold),
         "image_position_bounds": pos_bounds,
         "banding": {"type": "image_norm_y", "y_bands": int(args.y_bands)},
+        "band_thresholds": {str(k): float(v) for k, v in band_thresholds.items()},
+        "band_threshold_ratios": {str(k): float(v) for k, v in band_threshold_ratios.items()},
         "band_threshold_lookup": band_threshold_lookup,
+        "fallback_score_threshold": float(fallback_score_threshold),
         "fallback_threshold_ratio": float(args.fallback_threshold_ratio),
         "min_gt_per_band": int(args.min_gt_per_band),
         "min_pred_per_band": int(args.min_pred_per_band),
         "min_threshold_ratio": float(args.min_threshold_ratio),
         "max_threshold_ratio": float(args.max_threshold_ratio),
-        "rescue_keypoint_ratio": float(args.rescue_keypoint_ratio),
+        "optimization_metric": "val_locsim_f1_with_bandwise_instance_filtering",
+        "val_prediction_count_before": int(len(preds)),
+        "val_prediction_count_after": int(len(filtered_preds)),
+        "val_filtered_locsim_stats": filtered_stats,
     }
 
     with out_path.open("w") as f:
         json.dump(payload, f, indent=2)
 
     ratios = [float(v["threshold_ratio"]) for v in band_threshold_lookup.values()]
+    thresholds = [float(v["score_threshold"]) for v in band_threshold_lookup.values()]
     elapsed = time.time() - t0
-    print(f"Saved BEV post-process stats: {out_path}")
+    print(f"Saved BEV band calibration: {out_path}")
     print(f"  occupied bands: {sum(1 for i in range(args.y_bands) if gt_count_by_band.get(i, 0) > 0 or pred_count_by_band.get(i, 0) > 0)} / {args.y_bands}")
     print(
         "  inferred image-position bounds: "
@@ -567,10 +620,25 @@ def main() -> None:
         f"calibrated_bands={calibrated_bands}, fallback_bands={fallback_bands}"
     )
     print(
+        "  learned score thresholds: "
+        f"min={min(thresholds) if thresholds else fallback_score_threshold:.4f}, "
+        f"max={max(thresholds) if thresholds else fallback_score_threshold:.4f}, "
+        f"fallback={fallback_score_threshold:.4f}"
+    )
+    print(
         "  fallback reasons: "
         f"low_gt={skip_low_gt}, low_pred={skip_low_pred}, no_threshold={skip_no_threshold}"
     )
-    print(f"  rescue_keypoint_ratio: {args.rescue_keypoint_ratio:.3f}")
+    print(f"  val prediction count: before={len(preds)}, after={len(filtered_preds)}")
+    if filtered_stats:
+        print(
+            "  band-filtered val locsim: "
+            f"AP={filtered_stats['AP']:.4f}, "
+            f"precision={filtered_stats['precision']:.4f}, "
+            f"recall={filtered_stats['recall']:.4f}, "
+            f"f1={filtered_stats['f1']:.4f}, "
+            f"frame_accuracy={filtered_stats['frame_accuracy']:.4f}"
+        )
     print(f"  elapsed_sec: {elapsed:.1f}")
 
 

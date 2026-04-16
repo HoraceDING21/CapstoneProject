@@ -36,9 +36,106 @@ Usage examples:
 """
 
 import argparse
+import json
+from copy import copy
 from pathlib import Path
 
 from ultralytics import YOLO
+from ultralytics.models.yolo.pose.train import PoseTrainer
+from ultralytics.models.yolo.pose.val_bev import BEVPoseValidator
+from ultralytics.utils import LOGGER
+from ultralytics.utils.torch_utils import unwrap_model
+
+
+class BEVTrainingValidator(BEVPoseValidator):
+    """BEV validator that also computes LocSim metrics during training."""
+
+    def __call__(self, trainer=None, model=None):
+        """Run validation and expose BEV LocSim as training fitness."""
+        results = super().__call__(trainer=trainer, model=model)
+        if trainer is None or results is None:
+            return results
+
+        if self.args.save_json and self.jdict:
+            pred_json = self.save_dir / "predictions.json"
+            with open(pred_json, "w", encoding="utf-8") as f:
+                json.dump(self.jdict, f)
+
+            # BaseValidator skips eval_json() during training. Run it here so
+            # LocSim metrics are available for checkpoint selection.
+            results = self.eval_json(results)
+
+        fitness = self._select_bev_fitness(results)
+        results["fitness"] = fitness
+        LOGGER.info(f"BEV-aware model selection fitness (locsim/AP): {fitness:.5f}")
+        return self._round_results(results)
+
+    @staticmethod
+    def _select_bev_fitness(results):
+        """Select the primary BEV metric used for best.pt / early stopping."""
+        for key in ("locsim/AP", "locsim_bbox/AP", "metrics/mAP50-95(P)", "metrics/mAP50-95(B)"):
+            value = results.get(key)
+            if value is not None:
+                return float(value)
+        return 0.0
+
+    @staticmethod
+    def _round_results(results):
+        """Round numeric validation outputs to match Ultralytics defaults."""
+        rounded = {}
+        for key, value in results.items():
+            if hasattr(value, "item"):
+                value = value.item()
+            if isinstance(value, (int, float)):
+                rounded[key] = round(float(value), 5)
+            else:
+                rounded[key] = value
+        return rounded
+
+
+class BEVPoseTrainer(PoseTrainer):
+    """Pose trainer that validates with BEV LocSim metrics."""
+
+    mmpose_val_interval = 10
+    mmpose_dense_val_epochs = 20
+
+    def get_validator(self):
+        """Use BEV validator so training-time validation matches test-time task."""
+        self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss"
+        if getattr(unwrap_model(self.model).model[-1], "flow_model", None) is not None:
+            self.loss_names += ("rle_loss",)
+        return BEVTrainingValidator(
+            self.test_loader,
+            save_dir=self.save_dir,
+            args=copy(self.args),
+            _callbacks=self.callbacks,
+            phase="val",
+        )
+
+    def validate(self):
+        """Run validation on an mmpose-aligned cadence.
+
+        Match the mmpose YOLOXPose schedule:
+        - validate every 10 epochs during the main training phase
+        - validate every epoch for the final dense-validation phase
+        """
+        current_epoch = self.epoch + 1
+        dense_start_epoch = max(self.epochs - self.mmpose_dense_val_epochs, 1)
+        should_validate = (
+            current_epoch % self.mmpose_val_interval == 0
+            or current_epoch >= dense_start_epoch
+            or current_epoch >= self.epochs
+        )
+        if should_validate:
+            return super().validate()
+
+        next_sparse_epoch = ((current_epoch // self.mmpose_val_interval) + 1) * self.mmpose_val_interval
+        next_val_epoch = min(max(next_sparse_epoch, dense_start_epoch), self.epochs)
+        LOGGER.info(
+            "Skipping validation to match mmpose cadence: "
+            f"epoch {current_epoch}/{self.epochs}, next val at epoch {next_val_epoch}."
+        )
+        return self.metrics, None
 
 
 def parse_args():
@@ -122,6 +219,7 @@ def _shared_train_args(args):
         cfg["project"] = args.project
     if args.device is not None:
         cfg["device"] = args.device
+    cfg["save_json"] = True
     return cfg
 
 
@@ -154,7 +252,8 @@ def run_stage1(args):
           f"batch={args.stage1_batch}, imgsz={args.imgsz}")
     print(f"{'='*60}\n")
 
-    results = model.train(**cfg)
+    print("  Validation/selection: BEV-aware (best.pt selected by val locsim/AP)\n")
+    results = model.train(trainer=BEVPoseTrainer, **cfg)
 
     # Use the actual save_dir from training results — YOLO may prepend
     # 'runs/<task>/' to args.project internally, so do not hardcode the path.
@@ -190,7 +289,8 @@ def run_stage2(args, stage1_weights):
     print(f"  Loading weights from: {stage1_weights}")
     print(f"{'='*60}\n")
 
-    results = model.train(**cfg)
+    print("  Validation/selection: BEV-aware (best.pt selected by val locsim/AP)\n")
+    results = model.train(trainer=BEVPoseTrainer, **cfg)
 
     best_pt = Path(results.save_dir) / "weights" / "best.pt"
     print(f"\nStage 2 complete. Best weights: {best_pt}")
@@ -226,7 +326,8 @@ def run_single_stage(args):
           f"batch={args.batch}, imgsz={args.imgsz}")
     print(f"{'='*60}\n")
 
-    return model.train(**cfg)
+    print("  Validation/selection: BEV-aware (best.pt selected by val locsim/AP)\n")
+    return model.train(trainer=BEVPoseTrainer, **cfg)
 
 
 def main():
