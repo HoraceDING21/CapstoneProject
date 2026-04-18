@@ -1,0 +1,19 @@
+title: PitchPose Demo
+
+weights: best.pt
+
+device:
+
+imgsz: 960
+conf: 0.01
+iou: 0.65
+max_det: 300
+
+field_length_m: 105.0
+field_width_m: 68.0
+
+sample_sources:
+  - name: Mini Samples
+    images_dir: sample/mini
+    annotations_json: sample/mini.json
+    limit: 80

@@ -97,7 +97,44 @@ class BEVPoseTrainer(PoseTrainer):
     """Pose trainer that validates with BEV LocSim metrics."""
 
     mmpose_val_interval = 10
-    mmpose_dense_val_epochs = 20
+    mmpose_dense_val_epochs = 10
+    mmpose_dense_val_interval = 2
+    bev_metric_defaults = {
+        "locsim_bbox/AP": 0.0,
+        "locsim_bbox/AP .5": 0.0,
+        "locsim_bbox/AP .75": 0.0,
+        "locsim_bbox/AP (S)": 0.0,
+        "locsim_bbox/AP (M)": 0.0,
+        "locsim_bbox/AP (L)": 0.0,
+        "locsim_bbox/AR": 0.0,
+        "locsim_bbox/AR .5": 0.0,
+        "locsim_bbox/AR .75": 0.0,
+        "locsim_bbox/AR (S)": 0.0,
+        "locsim_bbox/AR (M)": 0.0,
+        "locsim_bbox/AR (L)": 0.0,
+        "locsim_bbox/precision": 0.0,
+        "locsim_bbox/recall": 0.0,
+        "locsim_bbox/f1": 0.0,
+        "locsim_bbox/score_threshold": 0.0,
+        "locsim_bbox/frame_accuracy": 0.0,
+        "locsim/AP": 0.0,
+        "locsim/AP .5": 0.0,
+        "locsim/AP .75": 0.0,
+        "locsim/AP (S)": 0.0,
+        "locsim/AP (M)": 0.0,
+        "locsim/AP (L)": 0.0,
+        "locsim/AR": 0.0,
+        "locsim/AR .5": 0.0,
+        "locsim/AR .75": 0.0,
+        "locsim/AR (S)": 0.0,
+        "locsim/AR (M)": 0.0,
+        "locsim/AR (L)": 0.0,
+        "locsim/precision": 0.0,
+        "locsim/recall": 0.0,
+        "locsim/f1": 0.0,
+        "locsim/score_threshold": 0.0,
+        "locsim/frame_accuracy": 0.0,
+    }
 
     def get_validator(self):
         """Use BEV validator so training-time validation matches test-time task."""
@@ -117,25 +154,51 @@ class BEVPoseTrainer(PoseTrainer):
 
         Match the mmpose YOLOXPose schedule:
         - validate every 10 epochs during the main training phase
-        - validate every epoch for the final dense-validation phase
+        - validate every 2 epochs for the final dense-validation phase
         """
         current_epoch = self.epoch + 1
         dense_start_epoch = max(self.epochs - self.mmpose_dense_val_epochs, 1)
+        is_dense_epoch = current_epoch >= dense_start_epoch
         should_validate = (
-            current_epoch % self.mmpose_val_interval == 0
-            or current_epoch >= dense_start_epoch
-            or current_epoch >= self.epochs
+            current_epoch >= self.epochs
+            or (
+                is_dense_epoch
+                and (
+                    (current_epoch - dense_start_epoch) % self.mmpose_dense_val_interval == 0
+                    or current_epoch == dense_start_epoch
+                )
+            )
+            or (not is_dense_epoch and current_epoch % self.mmpose_val_interval == 0)
         )
         if should_validate:
-            return super().validate()
+            metrics, fitness = super().validate()
+            self.metrics = self._with_bev_metric_defaults(metrics)
+            return self.metrics, fitness
 
-        next_sparse_epoch = ((current_epoch // self.mmpose_val_interval) + 1) * self.mmpose_val_interval
-        next_val_epoch = min(max(next_sparse_epoch, dense_start_epoch), self.epochs)
+        if is_dense_epoch:
+            next_val_epoch = min(
+                dense_start_epoch
+                + (((current_epoch - dense_start_epoch) // self.mmpose_dense_val_interval) + 1)
+                * self.mmpose_dense_val_interval,
+                self.epochs,
+            )
+        else:
+            next_sparse_epoch = ((current_epoch // self.mmpose_val_interval) + 1) * self.mmpose_val_interval
+            next_val_epoch = min(next_sparse_epoch, self.epochs)
         LOGGER.info(
             "Skipping validation to match mmpose cadence: "
             f"epoch {current_epoch}/{self.epochs}, next val at epoch {next_val_epoch}."
         )
+        self.metrics = self._with_bev_metric_defaults(self.metrics)
         return self.metrics, None
+
+    @classmethod
+    def _with_bev_metric_defaults(cls, metrics):
+        """Ensure skipped-validation epochs keep a stable results.csv schema."""
+        merged = dict(cls.bev_metric_defaults)
+        if metrics:
+            merged.update(metrics)
+        return merged
 
 
 def parse_args():

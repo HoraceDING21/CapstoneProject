@@ -8,12 +8,12 @@ PYTHON="${PYTHON:-python3}"
 DEVICE="${DEVICE:-0}"
 WORKERS="${WORKERS:-8}"
 
-EVAL_BATCH="${EVAL_BATCH:-32}"
+EVAL_BATCH="${EVAL_BATCH:-64}"
 EVAL_CONF="${EVAL_CONF:-0.01}"
 EVAL_IOU="${EVAL_IOU:-0.65}"
 EVAL_MAX_DET="${EVAL_MAX_DET:-100000}"
 
-MODEL_SIZE="${MODEL_SIZE:-x}"
+MODEL_SIZE="${MODEL_SIZE:-realX}"
 PRETRAINED_WEIGHTS="${PRETRAINED_WEIGHTS:-yolo11x-pose.pt}"
 
 COCO_ROOT="${COCO_ROOT:-}"
@@ -35,20 +35,20 @@ MAIN_RECT="${MAIN_RECT:-1}"
 TRAIN_PATIENCE="${TRAIN_PATIENCE:-20}"
 
 BASELINE_EPOCHS="${BASELINE_EPOCHS:-100}"
-BASELINE_BATCH="${BASELINE_BATCH:-16}"
+BASELINE_BATCH="${BASELINE_BATCH:-64}"
 BASELINE_LR="${BASELINE_LR:-1e-4}"
 
 HEADONLY_EPOCHS="${HEADONLY_EPOCHS:-100}"
-HEADONLY_BATCH="${HEADONLY_BATCH:-16}"
+HEADONLY_BATCH="${HEADONLY_BATCH:-64}"
 HEADONLY_LR="${HEADONLY_LR:-1e-4}"
 HEADONLY_FREEZE="${HEADONLY_FREEZE:-11}"
 
-STAGE1_EPOCHS="${STAGE1_EPOCHS:-40}"
-STAGE2_EPOCHS="${STAGE2_EPOCHS:-60}"
-STAGE1_BATCH="${STAGE1_BATCH:-16}"
-STAGE2_BATCH="${STAGE2_BATCH:-8}"
+STAGE1_EPOCHS="${STAGE1_EPOCHS:-30}"
+STAGE2_EPOCHS="${STAGE2_EPOCHS:-70}"
+STAGE1_BATCH="${STAGE1_BATCH:-64}"
+STAGE2_BATCH="${STAGE2_BATCH:-64}"
 STAGE1_LR="${STAGE1_LR:-1e-3}"
-STAGE2_LR="${STAGE2_LR:-1e-5}"
+STAGE2_LR="${STAGE2_LR:-1e-4}"
 
 YBANDS_SPEC="${YBANDS_SPEC:-3}"
 YBAND_MIN_GT="${YBAND_MIN_GT:-25}"
@@ -500,14 +500,6 @@ run_training_ablation() {
   single_base_weights="$(train_single_full "$EXP_SINGLE_BASE" "$BASE_DATA_CFG" "$BASELINE_EPOCHS" "$BASELINE_BATCH" "$BASELINE_LR")"
   evaluate_baseline_model "$EXP_SINGLE_BASE" "$single_base_weights" "$BASE_DATA_CFG"
 
-  local headonly_base_weights
-  headonly_base_weights="$(train_single_head_only "$EXP_HEADONLY_BASE" "$BASE_DATA_CFG")"
-  evaluate_baseline_model "$EXP_HEADONLY_BASE" "$headonly_base_weights" "$BASE_DATA_CFG"
-
-  local twostage_base_weights
-  twostage_base_weights="$(train_two_stage "$EXP_TWOSTAGE_BASE" "$BASE_DATA_CFG")"
-  evaluate_baseline_model "${EXP_TWOSTAGE_BASE}-stage2" "$twostage_base_weights" "$BASE_DATA_CFG"
-
   local single_occ_weights
   single_occ_weights="$(train_single_full "$EXP_SINGLE_OCC" "$OCC_DATA_CFG" "$BASELINE_EPOCHS" "$BASELINE_BATCH" "$BASELINE_LR")"
   evaluate_baseline_model "$EXP_SINGLE_OCC" "$single_occ_weights" "$OCC_DATA_CFG"
@@ -531,7 +523,7 @@ run_inference_ablation() {
 write_summaries() {
   log "Writing CSV summaries into $RESULTS_DIR"
   "$PYTHON" - "$RUN_ROOT" "$RESULTS_DIR" \
-    "$EXP_SINGLE_BASE" "$EXP_HEADONLY_BASE" "${EXP_TWOSTAGE_BASE}-stage2" "$EXP_SINGLE_OCC" "${EXP_TWOSTAGE_OCC}-stage2" \
+    "$EXP_SINGLE_BASE" "$EXP_SINGLE_OCC" "${EXP_TWOSTAGE_OCC}-stage2" \
     "$YBANDS_SPEC" <<'PY'
 import csv
 import json
@@ -541,11 +533,9 @@ from pathlib import Path
 run_root = Path(sys.argv[1])
 results_dir = Path(sys.argv[2])
 exp_single_base = sys.argv[3]
-exp_headonly_base = sys.argv[4]
-exp_twostage_base = sys.argv[5]
-exp_single_occ = sys.argv[6]
-exp_twostage_occ = sys.argv[7]
-yband_spec = sys.argv[8].split()
+exp_single_occ = sys.argv[4]
+exp_twostage_occ = sys.argv[5]
+yband_spec = sys.argv[6].split()
 results_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -592,8 +582,6 @@ def make_row(experiment: str, directory: Path):
 
 training_specs = [
     ("single_full_base", run_root / exp_single_base / "eval" / "baseline" / "test"),
-    ("single_headonly_base", run_root / exp_headonly_base / "eval" / "baseline" / "test"),
-    ("twostage_base", run_root / exp_twostage_base / "eval" / "baseline" / "test"),
     ("single_full_occ", run_root / exp_single_occ / "eval" / "baseline" / "test"),
     ("twostage_occ", run_root / exp_twostage_occ / "eval" / "baseline" / "test"),
 ]
@@ -633,20 +621,18 @@ Usage:
   bash run_fyp_cvpr_experiments.sh inference
   bash run_fyp_cvpr_experiments.sh summarize
 
-Default 100-epoch study:
+Default training study:
   - Training ablation:
     1. single-stage full fine-tune, base loss
-    2. single-stage head-only, base loss
-    3. two-stage, base loss
-    4. single-stage full fine-tune, occlusion-aware loss
-    5. two-stage, occlusion-aware loss
+    2. single-stage full fine-tune, occlusion-aware loss
+    3. two-stage, occlusion-aware loss
   - Inference ablation:
-    6. best two-stage + occlusion-aware model, baseline inference
-    7. same model + y-band inference
+    4. best two-stage + occlusion-aware model, baseline inference
+    5. same model + y-band inference
 
 Recommended setup:
   export COCO_ROOT=/path/to/coco_style_dataset
-  export PRETRAINED_WEIGHTS=/path/to/yolo11x-pose.pt
+  export PRETRAINED_WEIGHTS=/path/to/yolo11m-pose.pt
   bash run_fyp_cvpr_experiments.sh train
   bash run_fyp_cvpr_experiments.sh inference
 

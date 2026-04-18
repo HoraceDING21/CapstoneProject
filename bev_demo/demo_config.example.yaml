@@ -1,0 +1,32 @@
+title: BEV Pose Demo
+
+# Local path to your fine-tuned BEV pose weights (.pt)
+weights: /absolute/path/to/your/best.pt
+
+# Optional: set to "cpu", "0", "0,1", etc. Leave empty for auto.
+device:
+
+# Keep these aligned with the single-image demo inference settings.
+imgsz: 960
+conf: 0.01
+iou: 0.65
+max_det: 300
+
+# Optional: enable the same BEV y-band filtering used in validation.
+# bev_postprocess_stats: /absolute/path/to/bev_band_calibration.json
+
+# Pitch dimensions for the top-down visualization.
+field_length_m: 105.0
+field_width_m: 68.0
+
+sample_sources:
+  - name: SynLoc Val
+    images_dir: /absolute/path/to/soccernet_dataset/val
+    annotations_json: /absolute/path/to/soccernet_dataset/annotations/val.json
+    limit: 80
+
+  # Add more local sample pools if needed.
+  # - name: SynLoc Test
+  #   images_dir: /absolute/path/to/soccernet_dataset/test
+  #   annotations_json: /absolute/path/to/soccernet_dataset/annotations/test.json
+  #   limit: 80

@@ -876,9 +876,10 @@ def plot_results(file: str = "path/to/results.csv", dir: str = "", on_plot: Call
     assert len(files), f"No results.csv files found in {save_dir.resolve()}, nothing to plot."
 
     loss_keys, metric_keys = [], []
+    fig, ax, columns = None, None, None
     for i, f in enumerate(files):
         try:
-            data = pl.read_csv(f, infer_schema_length=None)
+            data = pl.read_csv(f, infer_schema_length=None, truncate_ragged_lines=True)
             if i == 0:
                 for c in data.columns:
                     if "loss" in c:
@@ -889,17 +890,28 @@ def plot_results(file: str = "path/to/results.csv", dir: str = "", on_plot: Call
                 columns = (
                     loss_keys[:loss_mid] + metric_keys[:metric_mid] + loss_keys[loss_mid:] + metric_keys[metric_mid:]
                 )
+                if not columns:
+                    LOGGER.warning(f"No plottable metric columns found in {f}.")
+                    continue
                 fig, ax = plt.subplots(2, len(columns) // 2, figsize=(len(columns) + 2, 6), tight_layout=True)
                 ax = ax.ravel()
+            if ax is None or columns is None:
+                continue
             x = data.select(data.columns[0]).to_numpy().flatten()
             for i, j in enumerate(columns):
+                if j not in data.columns:
+                    continue
                 y = data.select(j).to_numpy().flatten().astype("float")
                 ax[i].plot(x, y, marker=".", label=f.stem, linewidth=2, markersize=8)  # actual results
                 ax[i].plot(x, gaussian_filter1d(y, sigma=3), ":", label="smooth", linewidth=2)  # smoothing line
                 ax[i].set_title(j, fontsize=12)
         except Exception as e:
             LOGGER.error(f"Plotting error for {f}: {e}")
-    ax[1].legend()
+    if fig is None or ax is None:
+        LOGGER.warning(f"Skipping results plot because no valid CSV data could be read from {save_dir}.")
+        return
+    if len(ax) > 1:
+        ax[1].legend()
     fname = save_dir / "results.png"
     fig.savefig(fname, dpi=200)
     plt.close()

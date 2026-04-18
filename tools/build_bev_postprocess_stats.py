@@ -212,6 +212,28 @@ def coco_from_dataset(dataset: dict[str, Any]) -> COCO:
     return coco
 
 
+def normalize_coco_annotation(item: dict[str, Any]) -> dict[str, Any]:
+    """Fill optional COCO annotation fields expected by xtcocotools evaluators."""
+    ann = dict(item)
+    ann.setdefault("iscrowd", 0)
+    if "area" not in ann and "bbox" in ann and len(ann["bbox"]) >= 4:
+        ann["area"] = float(max(0.0, ann["bbox"][2] * ann["bbox"][3]))
+    if "num_keypoints" not in ann and "keypoints" in ann:
+        kpts = ann["keypoints"]
+        if kpts and isinstance(kpts[0], list):
+            ann["num_keypoints"] = int(sum(1 for kp in kpts if len(kp) >= 3 and kp[2] > 0))
+        elif isinstance(kpts, list):
+            ann["num_keypoints"] = int(sum(1 for i in range(2, len(kpts), 3) if kpts[i] > 0))
+    return ann
+
+
+def sanitize_coco_payload(dataset: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow-copied COCO payload with evaluator-required annotation defaults."""
+    payload = dict(dataset)
+    payload["annotations"] = [normalize_coco_annotation(a) for a in dataset.get("annotations", [])]
+    return payload
+
+
 def subset_coco_payload(
     ann: dict[str, Any],
     image_ids: set[Any],
@@ -222,17 +244,7 @@ def subset_coco_payload(
     for a in ann.get("annotations", []):
         if int(a.get("id")) not in ann_ids:
             continue
-        item = dict(a)
-        item.setdefault("iscrowd", 0)
-        if "area" not in item and "bbox" in item and len(item["bbox"]) >= 4:
-            item["area"] = float(max(0.0, item["bbox"][2] * item["bbox"][3]))
-        if "num_keypoints" not in item and "keypoints" in item:
-            kpts = item["keypoints"]
-            if kpts and isinstance(kpts[0], list):
-                item["num_keypoints"] = int(sum(1 for kp in kpts if len(kp) >= 3 and kp[2] > 0))
-            elif isinstance(kpts, list):
-                item["num_keypoints"] = int(sum(1 for i in range(2, len(kpts), 3) if kpts[i] > 0))
-        anns.append(item)
+        anns.append(normalize_coco_annotation(a))
     return {
         "images": images,
         "annotations": anns,
@@ -412,7 +424,7 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     log_progress(f"Loading val annotations: {ann_path}")
-    ann = load_json(ann_path)
+    ann = sanitize_coco_payload(load_json(ann_path))
     log_progress(f"Loading val predictions: {pred_path}")
     preds = load_json(pred_path)
     if not isinstance(preds, list):

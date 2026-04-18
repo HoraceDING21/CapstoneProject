@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Local Demo</p>
+          <h1>{{ title }}</h1>
+          <p class="lede">
+            Select a sample image from the local SynLoc dataset, run single-image inference,
+            and compare the image-space detections with the top-down pitch view.
+          </p>
+          <p class="byline">
+            Honghe DING. Hong Kong Polytechnic University, Department of Computing. Contact: <a href="mailto: dinghonghe0307@gmail.com">dinghonghe0307@gmail.com</a>
+          </p>
+        </div>
+      </header>
+
+      {% if notices %}
+        <section class="notice-stack">
+          {% for notice in notices %}
+            <article class="notice-card">{{ notice }}</article>
+          {% endfor %}
+        </section>
+      {% endif %}
+
+      <main class="main-grid">
+        <aside class="control-panel card">
+          <h2>Sample Selection</h2>
+          {% if samples %}
+            <div class="thumbnail-grid">
+              {% for sample in samples %}
+                <a
+                  class="thumbnail-card {% if selected_sample and sample.id == selected_sample.id %}is-selected{% endif %}"
+                  href="{{ url_for('index', sample_id=sample.id) }}">
+                  <img
+                    class="thumbnail-image"
+                    src="{{ url_for('sample_image', sample_id=sample.id) }}"
+                    alt="{{ sample.display_name }}">
+                  <span class="thumbnail-caption">{{ sample.image_path.name }}</span>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              No sample images are available yet. Configure `sample_sources` first.
+            </div>
+          {% endif %}
+
+          {% if selected_sample %}
+            <div class="sample-meta">
+              <span class="meta-label">Selected</span>
+              <strong>{{ selected_sample.display_name }}</strong>
+            </div>
+          {% endif %}
+        </aside>
+
+        <section class="content-panel">
+          {% if run_error %}
+            <article class="error-card">{{ run_error }}</article>
+          {% endif %}
+
+          <article class="card visual-card image-card">
+            <div class="card-header card-header-stack">
+              <div class="card-header-main">
+                <h2>{% if result %}Annotated Image{% else %}Selected Sample{% endif %}</h2>
+                {% if selected_sample %}
+                  <p class="card-subtitle">{{ selected_sample.display_name }}</p>
+                {% endif %}
+              </div>
+              <div class="card-header-actions">
+                {% if result %}
+                  <span class="badge">{{ result.prediction_count }} players</span>
+                {% endif %}
+                {% if selected_sample %}
+                  <form method="post" class="run-form inline-run-form">
+                    <input type="hidden" name="sample_id" value="{{ selected_sample.id }}">
+                    <button type="submit" class="primary-button">Run Demo</button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+            {% if selected_sample %}
+              <img
+                class="visual-image"
+                src="{% if result %}{{ result.annotated_image_data_uri }}{% else %}{{ url_for('sample_image', sample_id=selected_sample.id) }}{% endif %}"
+                alt="Sample view">
+            {% else %}
+              <div class="empty-state">Select a configured sample to start.</div>
+            {% endif %}
+          </article>
+
+          <article class="card visual-card pitch-card">
+            <div class="card-header">
+              <h2>Pitch View</h2>
+            </div>
+            <img class="visual-image pitch-image" src="{{ pitch_image_data_uri }}" alt="Top-down pitch view">
+            {% if result %}
+              <p class="projection-note">{{ result.projection_note }}</p>
+            {% else %}
+              <p class="projection-note">Run the demo to add the detected player positions to the pitch.</p>
+            {% endif %}
+          </article>
+
+          <article class="card results-card">
+            <div class="card-header">
+              <h2>Player Summary</h2>
+            </div>
+            {% if result and result.players %}
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Score</th>
+                      <th>Pelvis 2D</th>
+                      <th>Ground 2D</th>
+                      <th>World XY</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for player in result.players %}
+                      <tr>
+                        <td>
+                          <span class="player-chip">
+                            <span class="player-swatch" style="background: {{ player.color_hex }}"></span>
+                            #{{ player.player_id }}
+                          </span>
+                        </td>
+                        <td>{{ "%.3f"|format(player.score) }}</td>
+                        <td>({{ "%.1f"|format(player.pelvis_xy[0]) }}, {{ "%.1f"|format(player.pelvis_xy[1]) }})</td>
+                        <td>({{ "%.1f"|format(player.pelvis_ground_xy[0]) }}, {{ "%.1f"|format(player.pelvis_ground_xy[1]) }})</td>
+                        <td>
+                          {% if player.world_xy %}
+                            ({{ "%.2f"|format(player.world_xy[0]) }}, {{ "%.2f"|format(player.world_xy[1]) }})
+                          {% else %}
+                            <span class="muted">Unavailable</span>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <div class="empty-state">Run the demo to populate the detected players and their scores.</div>
+            {% endif %}
+          </article>
+        </section>
+      </main>
+    </div>
+    <script>
+      (function () {
+        const storageKey = "pitchpose-demo-scroll-y";
+        const pendingScroll = window.sessionStorage.getItem(storageKey);
+        if (pendingScroll !== null) {
+          window.scrollTo({ top: Number(pendingScroll), behavior: "auto" });
+          window.sessionStorage.removeItem(storageKey);
+        }
+
+        document.querySelectorAll(".thumbnail-card").forEach((link) => {
+          link.addEventListener("click", () => {
+            window.sessionStorage.setItem(storageKey, String(window.scrollY));
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
