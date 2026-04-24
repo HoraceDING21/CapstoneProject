@@ -3,16 +3,15 @@ from __future__ import annotations
 import base64
 import json
 import os
-from io import BytesIO
 from dataclasses import dataclass, field
 from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import yaml
 from PIL import Image, ImageDraw, ImageFont
-
 
 DEFAULT_FIELD_LENGTH_M = 105.0
 DEFAULT_FIELD_WIDTH_M = 68.0
@@ -288,8 +287,7 @@ def build_sample_catalog(config: DemoConfig) -> SampleCatalog:
 
             if count == 0:
                 errors.append(
-                    "No sample images were resolved for "
-                    f"{source.name}. Check images_dir and annotations_json."
+                    f"No sample images were resolved for {source.name}. Check images_dir and annotations_json."
                 )
             continue
 
@@ -587,23 +585,23 @@ class BEVDemoService:
         image_rgb = Image.fromarray(image[:, :, ::-1])
         draw = ImageDraw.Draw(image_rgb)
         width, height = image_rgb.size
-        line_width = max(1, int(round(min(height, width) / 900)))
+        line_width = max(1, round(min(height, width) / 900))
         radius = max(4, line_width + 3)
-        font = _load_font(max(14, int(round(min(height, width) / 72))))
+        font = _load_font(max(14, round(min(height, width) / 72)))
 
         for player in players:
             color_rgb = _bgr_to_rgb(player.color_bgr)
-            raw_x1, raw_y1, raw_x2, raw_y2 = (int(round(v)) for v in player.bbox_xyxy)
+            raw_x1, raw_y1, raw_x2, raw_y2 = (round(v) for v in player.bbox_xyxy)
             x1 = min(raw_x1, raw_x2)
             y1 = min(raw_y1, raw_y2)
             x2 = max(raw_x1, raw_x2)
             y2 = max(raw_y1, raw_y2)
             draw.rectangle((x1, y1, x2, y2), outline=color_rgb, width=line_width)
 
-            pelvis = (int(round(player.pelvis_xy[0])), int(round(player.pelvis_xy[1])))
+            pelvis = (round(player.pelvis_xy[0]), round(player.pelvis_xy[1]))
             pelvis_ground = (
-                int(round(player.pelvis_ground_xy[0])),
-                int(round(player.pelvis_ground_xy[1])),
+                round(player.pelvis_ground_xy[0]),
+                round(player.pelvis_ground_xy[1]),
             )
             draw.ellipse(
                 (pelvis[0] - radius, pelvis[1] - radius, pelvis[0] + radius, pelvis[1] + radius),
@@ -637,7 +635,7 @@ class BEVDemoService:
         canvas_width = 1120
         padding = 40
         drawable_width = canvas_width - 2 * padding
-        drawable_height = int(round(drawable_width * field_width / field_length))
+        drawable_height = round(drawable_width * field_width / field_length)
         canvas_height = drawable_height + 2 * padding
 
         pitch = Image.new("RGB", (canvas_width, canvas_height), (74, 111, 31))
@@ -647,8 +645,8 @@ class BEVDemoService:
         label_font = _load_font(20)
 
         def field_to_canvas(x: float, y: float) -> tuple[int, int]:
-            px = padding + int(round((field_length / 2.0 - y) / field_length * drawable_width))
-            py = padding + int(round((field_width / 2.0 - x) / field_width * drawable_height))
+            px = padding + round((field_length / 2.0 - y) / field_length * drawable_width)
+            py = padding + round((field_width / 2.0 - x) / field_width * drawable_height)
             return _clip_point_to_canvas((px, py), canvas_width, canvas_height)
 
         corner_a = field_to_canvas(field_width / 2.0, -field_length / 2.0)
@@ -664,9 +662,14 @@ class BEVDemoService:
         draw.line((center_top[0], center_top[1], center_bottom[0], center_bottom[1]), fill=line_color, width=line_width)
 
         center = field_to_canvas(0.0, 0.0)
-        circle_radius = int(round(9.15 / field_length * drawable_width))
+        circle_radius = round(9.15 / field_length * drawable_width)
         draw.ellipse(
-            (center[0] - circle_radius, center[1] - circle_radius, center[0] + circle_radius, center[1] + circle_radius),
+            (
+                center[0] - circle_radius,
+                center[1] - circle_radius,
+                center[0] + circle_radius,
+                center[1] + circle_radius,
+            ),
             outline=line_color,
             width=line_width,
         )
@@ -728,7 +731,9 @@ class BEVDemoService:
                 (center_pt[0] - 6, center_pt[1] - 6, center_pt[0] + 6, center_pt[1] + 6),
                 fill=color_rgb,
             )
-            draw.text((center_pt[0] + 10, center_pt[1] - 14), str(player.player_id), fill=(255, 255, 255), font=label_font)
+            draw.text(
+                (center_pt[0] + 10, center_pt[1] - 14), str(player.player_id), fill=(255, 255, 255), font=label_font
+            )
 
         return pitch
 

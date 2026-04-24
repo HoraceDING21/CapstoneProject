@@ -205,63 +205,54 @@ def parse_args():
     p = argparse.ArgumentParser(description="Two-stage YOLOv11 Pose BEV training")
 
     # ── model / data ──────────────────────────────────────────────────
-    p.add_argument("--model-size", type=str, default="m",
-                   choices=["n", "s", "m", "l", "x"])
-    p.add_argument("--pretrained", type=str, default=None,
-                   help="Pretrained weights for stage 1 init (e.g. yolo11m-pose.pt)")
+    p.add_argument("--model-size", type=str, default="m", choices=["n", "s", "m", "l", "x"])
+    p.add_argument(
+        "--pretrained", type=str, default=None, help="Pretrained weights for stage 1 init (e.g. yolo11m-pose.pt)"
+    )
     p.add_argument("--data", type=str, default="soccernet-synloc.yaml")
 
     # ── resolution ────────────────────────────────────────────────────
-    p.add_argument("--imgsz", type=int, default=640,
-                   help="Input image size (square). Use with --rect for non-square.")
-    p.add_argument("--rect", action="store_true",
-                   help="Rectangular batching — pads to actual aspect ratio, not square")
+    p.add_argument("--imgsz", type=int, default=640, help="Input image size (square). Use with --rect for non-square.")
+    p.add_argument("--rect", action="store_true", help="Rectangular batching — pads to actual aspect ratio, not square")
 
     # ── stage control ─────────────────────────────────────────────────
-    p.add_argument("--stage", type=int, default=0, choices=[0, 1, 2],
-                   help="0 = run both stages sequentially, 1 = stage 1 only, 2 = stage 2 only")
-    p.add_argument("--stage1-weights", type=str, default=None,
-                   help="Path to stage 1 best.pt (required when --stage 2)")
+    p.add_argument(
+        "--stage",
+        type=int,
+        default=0,
+        choices=[0, 1, 2],
+        help="0 = run both stages sequentially, 1 = stage 1 only, 2 = stage 2 only",
+    )
+    p.add_argument("--stage1-weights", type=str, default=None, help="Path to stage 1 best.pt (required when --stage 2)")
 
     # ── stage 1 hyperparams (frozen backbone) ─────────────────────────
     p.add_argument("--stage1-epochs", type=int, default=100)
-    p.add_argument("--stage1-lr", type=float, default=1e-3,
-                   help="Larger LR for head-only training")
+    p.add_argument("--stage1-lr", type=float, default=1e-3, help="Larger LR for head-only training")
     p.add_argument("--stage1-batch", type=int, default=64)
-    p.add_argument("--freeze", type=int, default=11,
-                   help="Freeze first N backbone layers (11 = full YOLO11 backbone)")
+    p.add_argument("--freeze", type=int, default=11, help="Freeze first N backbone layers (11 = full YOLO11 backbone)")
 
     # ── stage 2 hyperparams (full fine-tune) ──────────────────────────
     p.add_argument("--stage2-epochs", type=int, default=200)
-    p.add_argument("--stage2-lr", type=float, default=1e-5,
-                   help="Smaller LR for full network fine-tuning")
-    p.add_argument("--stage2-batch", type=int, default=None,
-                   help="Batch size for stage 2 (defaults to stage1-batch // 2)")
+    p.add_argument("--stage2-lr", type=float, default=1e-5, help="Smaller LR for full network fine-tuning")
+    p.add_argument(
+        "--stage2-batch", type=int, default=None, help="Batch size for stage 2 (defaults to stage1-batch // 2)"
+    )
 
     # ── common training args ──────────────────────────────────────────
     p.add_argument("--device", type=str, default=None)
     p.add_argument("--workers", type=int, default=8)
-    p.add_argument("--project", type=str, default=None,
-                   help="Project dir (default: YOLO saves to runs/pose/<name>)")
+    p.add_argument("--project", type=str, default=None, help="Project dir (default: YOLO saves to runs/pose/<name>)")
     p.add_argument("--name", type=str, default=None)
-    p.add_argument("--resume", action="store_true",
-                   help="Resume training from last checkpoint of the current stage")
-    p.add_argument("--patience", type=int, default=50,
-                   help="Early stopping patience (epochs without improvement)")
-    p.add_argument("--cos-lr", action="store_true",
-                   help="Use cosine learning rate schedule")
+    p.add_argument("--resume", action="store_true", help="Resume training from last checkpoint of the current stage")
+    p.add_argument("--patience", type=int, default=50, help="Early stopping patience (epochs without improvement)")
+    p.add_argument("--cos-lr", action="store_true", help="Use cosine learning rate schedule")
 
     # ── legacy single-stage mode (backward compatible) ────────────────
-    p.add_argument("--single-stage", action="store_true",
-                   help="Fall back to single-stage training (original behavior)")
-    p.add_argument("--epochs", type=int, default=300,
-                   help="Total epochs for single-stage mode")
-    p.add_argument("--batch", type=int, default=64,
-                   help="Batch size for single-stage mode")
-    p.add_argument("--lr0", type=float, default=1e-4,
-                   help="Learning rate for single-stage mode")
-    p.add_argument("--no-freeze", action="store_true",
-                   help="Disable backbone freezing in single-stage mode")
+    p.add_argument("--single-stage", action="store_true", help="Fall back to single-stage training (original behavior)")
+    p.add_argument("--epochs", type=int, default=300, help="Total epochs for single-stage mode")
+    p.add_argument("--batch", type=int, default=64, help="Batch size for single-stage mode")
+    p.add_argument("--lr0", type=float, default=1e-4, help="Learning rate for single-stage mode")
+    p.add_argument("--no-freeze", action="store_true", help="Disable backbone freezing in single-stage mode")
 
     return p.parse_args()
 
@@ -309,11 +300,10 @@ def run_stage1(args):
         resume=args.resume,
     )
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  STAGE 1: Frozen backbone (layers 0-{args.freeze - 1})")
-    print(f"  LR={args.stage1_lr}, epochs={args.stage1_epochs}, "
-          f"batch={args.stage1_batch}, imgsz={args.imgsz}")
-    print(f"{'='*60}\n")
+    print(f"  LR={args.stage1_lr}, epochs={args.stage1_epochs}, batch={args.stage1_batch}, imgsz={args.imgsz}")
+    print(f"{'=' * 60}\n")
 
     print("  Validation/selection: BEV-aware (best.pt selected by val locsim/AP)\n")
     results = model.train(trainer=BEVPoseTrainer, **cfg)
@@ -345,12 +335,11 @@ def run_stage2(args, stage1_weights):
     )
     # No freeze → all parameters trainable
 
-    print(f"\n{'='*60}")
-    print(f"  STAGE 2: Full fine-tuning (all layers unfrozen)")
-    print(f"  LR={args.stage2_lr}, epochs={args.stage2_epochs}, "
-          f"batch={stage2_batch}, imgsz={args.imgsz}")
+    print(f"\n{'=' * 60}")
+    print("  STAGE 2: Full fine-tuning (all layers unfrozen)")
+    print(f"  LR={args.stage2_lr}, epochs={args.stage2_epochs}, batch={stage2_batch}, imgsz={args.imgsz}")
     print(f"  Loading weights from: {stage1_weights}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     print("  Validation/selection: BEV-aware (best.pt selected by val locsim/AP)\n")
     results = model.train(trainer=BEVPoseTrainer, **cfg)
@@ -383,11 +372,10 @@ def run_single_stage(args):
     if not args.no_freeze:
         cfg["freeze"] = args.freeze
 
-    print(f"\n{'='*60}")
-    print(f"  SINGLE-STAGE training")
-    print(f"  LR={args.lr0}, epochs={args.epochs}, "
-          f"batch={args.batch}, imgsz={args.imgsz}")
-    print(f"{'='*60}\n")
+    print(f"\n{'=' * 60}")
+    print("  SINGLE-STAGE training")
+    print(f"  LR={args.lr0}, epochs={args.epochs}, batch={args.batch}, imgsz={args.imgsz}")
+    print(f"{'=' * 60}\n")
 
     print("  Validation/selection: BEV-aware (best.pt selected by val locsim/AP)\n")
     return model.train(trainer=BEVPoseTrainer, **cfg)
