@@ -1,6 +1,6 @@
 # PitchPose
 
-Efficient bird's-eye-view athlete localisation for soccer broadcast images with YOLO11-Pose.
+Efficient bird's-eye-view athlete localization for soccer broadcast images with YOLO11-Pose.
 
 This repository is the codebase for my capstone project at The Hong Kong Polytechnic University:
 
@@ -8,7 +8,7 @@ This repository is the codebase for my capstone project at The Hong Kong Polytec
 - Department: Department of Computing, The Hong Kong Polytechnic University
 - Project type: COMP4913 Capstone Project
 
-This project started from the official Ultralytics repository and was adapted for the Spiideo SoccerNet SynLoc bird's-eye-view (BEV) athlete localisation task. The current codebase includes task-specific model, training, evaluation, and demo components for predicting:
+This project started from the official Ultralytics repository and was adapted for the Spiideo SoccerNet SynLoc bird's-eye-view (BEV) athlete localization task. The current codebase includes task-specific model, training, evaluation, and demo components for predicting:
 
 - the pelvis keypoint in image space
 - the pelvis ground-projection keypoint in image space
@@ -18,7 +18,7 @@ Results in this README are taken from `capstone_report.pdf`. Some additional exp
 
 ## Project Overview
 
-The goal of PitchPose is single-frame world-coordinate athlete localisation from static soccer broadcast cameras. Given one RGB image, the system detects each athlete, predicts two keypoints per player, and maps the ground-projection keypoint to pitch coordinates.
+The goal of PitchPose is single-frame world-coordinate athlete localization from static soccer broadcast cameras. Given one RGB image, the system detects each athlete, predicts two keypoints per player, and maps the ground-projection keypoint to pitch coordinates.
 
 The project is built around four main ideas:
 
@@ -29,32 +29,32 @@ The project is built around four main ideas:
 
 ## Benchmark Setting
 
-The project targets the Spiideo SoccerNet SynLoc benchmark for BEV athlete localisation.
+The project targets the Spiideo SoccerNet SynLoc benchmark for BEV athlete localization.
 
 Dataset summary from the report:
 
-| Split | Images | Arenas |
-| --- | ---: | ---: |
-| Train | 42,504 | 13 |
-| Validation | 6,777 | 13 |
-| Test | 9,309 | 15 |
-| Challenge | 11,352 | 15 |
-| Total | 69,942 | 17 |
+| Split      | Images | Arenas |
+| ---------- | -----: | -----: |
+| Train      | 42,504 |     13 |
+| Validation |  6,777 |     13 |
+| Test       |  9,309 |     15 |
+| Challenge  | 11,352 |     15 |
+| Total      | 69,942 |     17 |
 
 The dataset contains roughly 1.1 million annotated athletes. Each instance includes a bounding box, segmentation area, and two 3D keypoints: pelvis and pelvis ground projection.
 
 ## Main Results
 
-Primary metric: `mAP-LocSim`, where localisation is evaluated directly in world coordinates rather than image-space IoU.
+Primary metric: `mAP-LocSim`, where localization is evaluated directly in world coordinates rather than image-space IoU.
 
 ### Test-set comparison
 
-| Method | Epochs | mAP-LocSim | Precision | Recall | F1 | Frame Accuracy |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| YOLOX-m pose baseline | 300 | 76.2 | 92.8 | 89.0 | 90.9 | 31.6 |
-| YOLO11x-pose, single-stage, global threshold | 50 | 68.6 | 85.9 | 84.0 | 84.9 | 19.9 |
-| YOLO11x-pose, two-stage + occlusion-aware loss, global threshold | 50 | 81.7 | 94.1 | 92.0 | 93.0 | 42.9 |
-| YOLO11x-pose, two-stage + occlusion-aware loss, y-band inference | 50 | 80.5 | 91.2 | 93.0 | 92.1 | 47.1 |
+| Method                                                           | Epochs | mAP-LocSim | Precision | Recall |   F1 | Frame Accuracy |
+| ---------------------------------------------------------------- | -----: | ---------: | --------: | -----: | ---: | -------------: |
+| YOLOX-m pose baseline                                            |    300 |       76.2 |      92.8 |   89.0 | 90.9 |           31.6 |
+| YOLO11x-pose, single-stage, global threshold                     |     50 |       68.6 |      85.9 |   84.0 | 84.9 |           19.9 |
+| YOLO11x-pose, two-stage + occlusion-aware loss, global threshold |     50 |       81.7 |      94.1 |   92.0 | 93.0 |           42.9 |
+| YOLO11x-pose, two-stage + occlusion-aware loss, y-band inference |     50 |       80.5 |      91.2 |   93.0 | 92.1 |           47.1 |
 
 ### Efficiency summary
 
@@ -90,7 +90,7 @@ The project uses the ratio
 
 `r = A_seg / A_bbox`
 
-as a proxy for occlusion severity. More occluded athletes receive larger keypoint-loss weight during training, improving localisation quality under crowding and partial occlusion.
+as a proxy for occlusion severity. More occluded athletes receive larger keypoint-loss weight during training, improving localization quality under crowding and partial occlusion.
 
 ### 4. y-band calibrated inference
 
@@ -103,7 +103,7 @@ Key files and folders:
 - `train_bev.py`: two-stage training entry point
 - `test_bev.py`: LocSim-oriented evaluation script
 - `run_experiments.sh`: experiment runner for dataset prep, training, validation, and post-processing
-- `bev_demo/`: local Flask demo for image-space and pitch-space visualisation
+- `bev_demo/`: local Flask demo for image-space and pitch-space visualization
 - `tools/convert_coco_to_yolo_pose.py`: COCO-to-YOLO pose label conversion
 - `tools/build_bev_postprocess_stats.py`: validation-calibrated y-band threshold generation
 - `ultralytics/cfg/datasets/soccernet-synloc.yaml`: SynLoc dataset config
@@ -153,8 +153,8 @@ Current demo features:
 
 - choose from predefined sample images
 - run the BEV pose model on one image
-- visualise thin player bounding boxes
-- visualise the two predicted keypoints
+- visualize thin player bounding boxes
+- visualize the two predicted keypoints
 - assign consistent player IDs across the image and pitch views
 - show per-player confidence and coordinates
 
@@ -172,7 +172,7 @@ http://127.0.0.1:5000
 
 ## Notes on Projection
 
-The benchmark task is defined through camera calibration and ground-plane projection. In the current demo, the pitch view is intended for presentation and qualitative inspection. The local demo uses the available sample annotation pairs to render a stable world-view visualisation for chosen examples.
+The benchmark task is defined through camera calibration and ground-plane projection. In the current demo, the pitch view is intended for presentation and qualitative inspection. The local demo uses the available sample annotation pairs to render a stable world-view visualization for chosen examples.
 
 ## Current Status
 
@@ -180,6 +180,6 @@ The benchmark task is defined through camera calibration and ground-plane projec
 - Local demo is available for presentation
 - Additional experiments are still in progress
 
-## Acknowledgement
+## Acknowledgment
 
-This repository is based on the official Ultralytics codebase and extends it for BEV soccer athlete localisation research.
+This repository is based on the official Ultralytics codebase and extends it for BEV soccer athlete localization research.

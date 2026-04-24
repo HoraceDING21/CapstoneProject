@@ -83,7 +83,7 @@ die() {
 }
 
 require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
+  command -v "$1" > /dev/null 2>&1 || die "Required command not found: $1"
 }
 
 require_file() {
@@ -115,7 +115,7 @@ sync_annotations_dir() {
   local dst_ann="$dst_root/annotations"
   require_dir "$src_ann"
   mkdir -p "$dst_ann"
-  cp -f "$src_ann"/*.json "$dst_ann/" 2>/dev/null || true
+  cp -f "$src_ann"/*.json "$dst_ann/" 2> /dev/null || true
   local copied=0
   local f
   for f in "$dst_ann"/*.json; do
@@ -131,7 +131,7 @@ write_dataset_cfg() {
   local output_path="$1"
   local dataset_root="$2"
   local use_occ_weights="$3"
-  "$PYTHON" - "$DATA_TEMPLATE" "$output_path" "$dataset_root" "$use_occ_weights" <<'PY'
+  "$PYTHON" - "$DATA_TEMPLATE" "$output_path" "$dataset_root" "$use_occ_weights" << 'PY'
 from pathlib import Path
 import sys
 
@@ -524,7 +524,7 @@ write_summaries() {
   log "Writing CSV summaries into $RESULTS_DIR"
   "$PYTHON" - "$RUN_ROOT" "$RESULTS_DIR" \
     "$EXP_SINGLE_BASE" "$EXP_SINGLE_OCC" "${EXP_TWOSTAGE_OCC}-stage2" \
-    "$YBANDS_SPEC" <<'PY'
+    "$YBANDS_SPEC" << 'PY'
 import csv
 import json
 import sys
@@ -614,7 +614,7 @@ PY
 }
 
 usage() {
-  cat <<EOF
+  cat << EOF
 Usage:
   bash run_fyp_cvpr_experiments.sh prepare
   bash run_fyp_cvpr_experiments.sh train

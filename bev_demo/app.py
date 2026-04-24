@@ -6,7 +6,6 @@ from flask import Flask, abort, render_template, request, send_file
 
 from bev_demo.core import DemoRunResult, SampleEntry, get_runtime
 
-
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
 
