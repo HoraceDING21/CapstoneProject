@@ -22,10 +22,10 @@ class PositionBandPostProcessor:
     """Per-y-band calibrated BEV post-processing.
 
     Runtime behavior is intentionally simple:
-      1) map the predicted player position keypoint to a vertical image band,
-      2) read the learned score threshold assigned to that band,
-      3) compare the detection score against that threshold,
-      4) keep or drop the whole prediction instance.
+    1) map the predicted player position keypoint to a vertical image band,
+    2) read the learned score threshold assigned to that band,
+    3) compare the detection score against that threshold,
+    4) keep or drop the whole prediction instance.
 
     The keypoint itself is only used to decide which band a prediction belongs
     to. Filtering always happens at the detection-instance level.
@@ -65,7 +65,9 @@ class PositionBandPostProcessor:
                         self.band_thresholds[key] = float(lookup[key]["learned_threshold"])
                         continue
                     if "threshold_ratio" in lookup[key]:
-                        self.band_thresholds[key] = float(self.global_score_threshold) * float(lookup[key]["threshold_ratio"])
+                        self.band_thresholds[key] = float(self.global_score_threshold) * float(
+                            lookup[key]["threshold_ratio"]
+                        )
                         continue
                 if key in ratios:
                     self.band_thresholds[key] = float(self.global_score_threshold) * float(ratios[key])
@@ -104,8 +106,12 @@ class PositionBandPostProcessor:
                 stage_thresholds={
                     "global_score_threshold": float(self.global_score_threshold),
                     "fallback_score_threshold": float(self.fallback_score_threshold),
-                    "band_low_threshold": float(min(self.band_thresholds.values(), default=self.fallback_score_threshold)),
-                    "band_high_threshold": float(max(self.band_thresholds.values(), default=self.fallback_score_threshold)),
+                    "band_low_threshold": float(
+                        min(self.band_thresholds.values(), default=self.fallback_score_threshold)
+                    ),
+                    "band_high_threshold": float(
+                        max(self.band_thresholds.values(), default=self.fallback_score_threshold)
+                    ),
                     "num_bands": float(self.y_bands),
                     "local_threshold_min": 0.0,
                     "local_threshold_max": 0.0,
@@ -128,7 +134,7 @@ class PositionBandPostProcessor:
             stage_counts={
                 "input": int(n),
                 "valid_position": int(np.count_nonzero(valid_pos)),
-                "kept": int(len(kept_indices)),
+                "kept": len(kept_indices),
             },
             stage_thresholds={
                 "global_score_threshold": float(self.global_score_threshold),

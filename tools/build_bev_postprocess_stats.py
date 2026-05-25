@@ -284,7 +284,9 @@ def compute_locsim_stats(
     return result if np.isfinite(result["f1"]) and np.isfinite(result["score_threshold"]) else None
 
 
-def compute_locsim_score_threshold(ann_payload: dict[str, Any], preds: list[dict[str, Any]], position_keypoint_index: int) -> float | None:
+def compute_locsim_score_threshold(
+    ann_payload: dict[str, Any], preds: list[dict[str, Any]], position_keypoint_index: int
+) -> float | None:
     stats = compute_locsim_stats(ann_payload, preds, position_keypoint_index)
     if not stats:
         return None
@@ -361,10 +363,7 @@ def sweep_best_band_threshold(
     lower = float(global_threshold * min_ratio)
     upper = float(global_threshold * max_ratio)
     candidates = candidate_thresholds(preds, lower, upper, max_steps, include_threshold=global_threshold)
-    log_progress(
-        f"  [{band_name}] sweeping {len(candidates)} candidate thresholds "
-        f"in [{lower:.4f}, {upper:.4f}]"
-    )
+    log_progress(f"  [{band_name}] sweeping {len(candidates)} candidate thresholds in [{lower:.4f}, {upper:.4f}]")
 
     best_threshold: float | None = None
     best_stats: dict[str, float] | None = None
@@ -606,8 +605,8 @@ def main() -> None:
         "min_threshold_ratio": float(args.min_threshold_ratio),
         "max_threshold_ratio": float(args.max_threshold_ratio),
         "optimization_metric": "val_locsim_f1_with_bandwise_instance_filtering",
-        "val_prediction_count_before": int(len(preds)),
-        "val_prediction_count_after": int(len(filtered_preds)),
+        "val_prediction_count_before": len(preds),
+        "val_prediction_count_after": len(filtered_preds),
         "val_filtered_locsim_stats": filtered_stats,
     }
 
@@ -618,7 +617,9 @@ def main() -> None:
     thresholds = [float(v["score_threshold"]) for v in band_threshold_lookup.values()]
     elapsed = time.time() - t0
     print(f"Saved BEV band calibration: {out_path}")
-    print(f"  occupied bands: {sum(1 for i in range(args.y_bands) if gt_count_by_band.get(i, 0) > 0 or pred_count_by_band.get(i, 0) > 0)} / {args.y_bands}")
+    print(
+        f"  occupied bands: {sum(1 for i in range(args.y_bands) if gt_count_by_band.get(i, 0) > 0 or pred_count_by_band.get(i, 0) > 0)} / {args.y_bands}"
+    )
     print(
         "  inferred image-position bounds: "
         f"x=[{pos_bounds['x_min']:.4f}, {pos_bounds['x_max']:.4f}], "
@@ -637,10 +638,7 @@ def main() -> None:
         f"max={max(thresholds) if thresholds else fallback_score_threshold:.4f}, "
         f"fallback={fallback_score_threshold:.4f}"
     )
-    print(
-        "  fallback reasons: "
-        f"low_gt={skip_low_gt}, low_pred={skip_low_pred}, no_threshold={skip_no_threshold}"
-    )
+    print(f"  fallback reasons: low_gt={skip_low_gt}, low_pred={skip_low_pred}, no_threshold={skip_no_threshold}")
     print(f"  val prediction count: before={len(preds)}, after={len(filtered_preds)}")
     if filtered_stats:
         print(
