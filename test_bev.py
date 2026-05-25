@@ -1,6 +1,6 @@
-"""Test / evaluate the YOLOv11 BEV pose model against the sskit LocSim metric.
+r"""Test / evaluate the YOLOv11 BEV pose model against the sskit LocSim metric.
 
-This script mirrors the behaviour of mmpose/tools/test.py for the BEV task:
+This script mirrors the behavior of mmpose/tools/test.py for the BEV task:
 
   mmpose flow                             this script
   ─────────────────────────────────────   ──────────────────────────────────────
@@ -34,6 +34,8 @@ Usage examples:
         --split   challenge --imgsz 640
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import shutil
@@ -48,42 +50,45 @@ from ultralytics import YOLO
 from ultralytics.models.yolo.pose.val_bev import BEVPoseValidator
 from ultralytics.utils import LOGGER
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # CLI
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Test/evaluate YOLOv11 BEV pose model with sskit LocSim metric"
+    parser = argparse.ArgumentParser(description="Test/evaluate YOLOv11 BEV pose model with sskit LocSim metric")
+    parser.add_argument("--weights", type=str, required=True, help="Path to model weights (.pt)")
+    parser.add_argument(
+        "--data", type=str, default="soccernet-synloc.yaml", help="Path to dataset YAML (soccernet-synloc.yaml)"
     )
-    parser.add_argument("--weights", type=str, required=True,
-                        help="Path to model weights (.pt)")
-    parser.add_argument("--data", type=str, default="soccernet-synloc.yaml",
-                        help="Path to dataset YAML (soccernet-synloc.yaml)")
-    parser.add_argument("--split", type=str, default="val",
-                        choices=["val", "test", "challenge"],
-                        help="Dataset split to evaluate")
-    parser.add_argument("--imgsz", type=int, default=640,
-                        help="Inference image size")
-    parser.add_argument("--batch", type=int, default=32,
-                        help="Inference batch size")
-    parser.add_argument("--conf", type=float, default=0.01,
-                        help="Confidence threshold for NMS (matches mmpose score_thr)")
-    parser.add_argument("--iou", type=float, default=0.65,
-                        help="IoU threshold for NMS (matches mmpose nms_thr)")
-    parser.add_argument("--max-det", type=int, default=100000,
-                        help="Maximum detections per image after NMS (large default to mirror mmpose)")
-    parser.add_argument("--device", type=str, default=None,
-                        help="Device: 0, '0,1', 'cpu', etc.")
-    parser.add_argument("--workers", type=int, default=8,
-                        help="Dataloader workers")
-    parser.add_argument("--save-dir", type=str, default=None,
-                        help="Directory to save results (default: auto from weights path)")
-    parser.add_argument("--rect", action="store_true",
-                        help="Rectangular inference — pad to actual aspect ratio instead of square")
-    parser.add_argument("--run-val-first", action="store_true",
-                        help="Deprecated compatibility flag. Test/challenge already run val first automatically.")
+    parser.add_argument(
+        "--split", type=str, default="val", choices=["val", "test", "challenge"], help="Dataset split to evaluate"
+    )
+    parser.add_argument("--imgsz", type=int, default=640, help="Inference image size")
+    parser.add_argument("--batch", type=int, default=32, help="Inference batch size")
+    parser.add_argument(
+        "--conf", type=float, default=0.01, help="Confidence threshold for NMS (matches mmpose score_thr)"
+    )
+    parser.add_argument("--iou", type=float, default=0.65, help="IoU threshold for NMS (matches mmpose nms_thr)")
+    parser.add_argument(
+        "--max-det",
+        type=int,
+        default=100000,
+        help="Maximum detections per image after NMS (large default to mirror mmpose)",
+    )
+    parser.add_argument("--device", type=str, default=None, help="Device: 0, '0,1', 'cpu', etc.")
+    parser.add_argument("--workers", type=int, default=8, help="Dataloader workers")
+    parser.add_argument(
+        "--save-dir", type=str, default=None, help="Directory to save results (default: auto from weights path)"
+    )
+    parser.add_argument(
+        "--rect", action="store_true", help="Rectangular inference — pad to actual aspect ratio instead of square"
+    )
+    parser.add_argument(
+        "--run-val-first",
+        action="store_true",
+        help="Deprecated compatibility flag. Test/challenge already run val first automatically.",
+    )
     parser.add_argument(
         "--bev-postprocess-stats",
         type=str,
@@ -97,26 +102,39 @@ def parse_args():
 # Core evaluation function
 # ──────────────────────────────────────────────────────────────────────────────
 
-def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
-             conf: float, iou: float, max_det: int, device: str, workers: int,
-             save_dir: Path, rect: bool = False, bev_postprocess_stats: str | None = None) -> dict:
+
+def evaluate(
+    weights: str,
+    data: str,
+    split: str,
+    imgsz: int,
+    batch: int,
+    conf: float,
+    iou: float,
+    max_det: int,
+    device: str,
+    workers: int,
+    save_dir: Path,
+    rect: bool = False,
+    bev_postprocess_stats: str | None = None,
+) -> dict:
     """Run one evaluation pass for the given split.
 
     Mirrors a single runner.val() or runner.test() call in mmpose/tools/test.py.
 
     Args:
-        weights:  Path to .pt checkpoint.
-        data:     Dataset YAML path.
-        split:    'val', 'test', or 'challenge'.
-        imgsz:    Input image size.
-        batch:    Inference batch size.
-        conf:     Confidence threshold.
-        iou:      IoU threshold for NMS.
-        max_det:  Maximum detections retained after NMS.
-        device:   Torch device string or None for auto.
-        workers:  Dataloader workers.
+        weights: Path to .pt checkpoint.
+        data: Dataset YAML path.
+        split: 'val', 'test', or 'challenge'.
+        imgsz: Input image size.
+        batch: Inference batch size.
+        conf: Confidence threshold.
+        iou: IoU threshold for NMS.
+        max_det: Maximum detections retained after NMS.
+        device: Torch device string or None for auto.
+        workers: Dataloader workers.
         save_dir: Directory to write outputs to.
-        rect:     Rectangular batching (pad to aspect ratio, not square).
+        rect: Rectangular batching (pad to aspect ratio, not square).
         bev_postprocess_stats: Optional path to BEV post-processing stats JSON.
 
     Returns:
@@ -155,6 +173,7 @@ def evaluate(weights: str, data: str, split: str, imgsz: int, batch: int,
 # Submission packaging  (mirrors mmpose/tools/test.py lines 175-181)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def package_submission(save_dir: Path, split: str):
     """Write results.json + metadata.json and zip them for challenge submission.
 
@@ -181,8 +200,7 @@ def package_submission(save_dir: Path, split: str):
         LOGGER.info(f"Loaded score_threshold={score_threshold:.4f} from {val_stats_file}")
     else:
         LOGGER.warning(
-            f"{val_stats_file} not found. metadata.json will not include score_threshold. "
-            "Run --split val first."
+            f"{val_stats_file} not found. metadata.json will not include score_threshold. Run --split val first."
         )
 
     metadata = {"position_from_keypoint_index": 1}
@@ -204,6 +222,7 @@ def package_submission(save_dir: Path, split: str):
 # ──────────────────────────────────────────────────────────────────────────────
 # Entrypoint
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def main():
     args = parse_args()
@@ -232,10 +251,19 @@ def main():
                 "the baseline global score_threshold stays consistent with mmpose."
             )
         evaluate(
-            weights=args.weights, data=args.data, split="val",
-            imgsz=args.imgsz, batch=args.batch, conf=args.conf,
-            iou=args.iou, max_det=args.max_det, device=args.device, workers=args.workers,
-            save_dir=val_save_dir, rect=args.rect, bev_postprocess_stats=val_bev_stats,
+            weights=args.weights,
+            data=args.data,
+            split="val",
+            imgsz=args.imgsz,
+            batch=args.batch,
+            conf=args.conf,
+            iou=args.iou,
+            max_det=args.max_det,
+            device=args.device,
+            workers=args.workers,
+            save_dir=val_save_dir,
+            rect=args.rect,
+            bev_postprocess_stats=val_bev_stats,
         )
         # Copy val_stats files into save_dir so BEVPoseValidator can find them
         for stats_file in val_save_dir.glob("*_val_stats.json"):
@@ -248,10 +276,19 @@ def main():
     LOGGER.info(f"Running {args.split.upper()} evaluation ...")
     LOGGER.info("=" * 60)
     metrics = evaluate(
-        weights=args.weights, data=args.data, split=args.split,
-        imgsz=args.imgsz, batch=args.batch, conf=args.conf,
-        iou=args.iou, max_det=args.max_det, device=args.device, workers=args.workers,
-        save_dir=save_dir, rect=args.rect, bev_postprocess_stats=args.bev_postprocess_stats,
+        weights=args.weights,
+        data=args.data,
+        split=args.split,
+        imgsz=args.imgsz,
+        batch=args.batch,
+        conf=args.conf,
+        iou=args.iou,
+        max_det=args.max_det,
+        device=args.device,
+        workers=args.workers,
+        save_dir=save_dir,
+        rect=args.rect,
+        bev_postprocess_stats=args.bev_postprocess_stats,
     )
 
     # ── Step 3: package submission zip (for test / challenge) ─────────────────
