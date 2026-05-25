@@ -40,19 +40,20 @@ from collections import defaultdict
 from pathlib import Path
 
 
-def compute_occlusion_weight(seg_area: float, bbox_area: float, alpha: float = 2.0,
-                             ratio_min: float = 0.28, ratio_max: float = 0.64) -> float:
+def compute_occlusion_weight(
+    seg_area: float, bbox_area: float, alpha: float = 2.0, ratio_min: float = 0.28, ratio_max: float = 0.64
+) -> float:
     """Compute per-instance occlusion weight from seg_area / bbox_area ratio.
 
     Occluded players have small seg_area relative to bbox_area → low ratio → high weight.
 
     Args:
-        seg_area:   Pixel-level segmentation area from COCO annotation.
-        bbox_area:  Bounding box area (w * h).
-        alpha:      Strength of the occlusion boost.  0 = uniform weighting (all get 1.0),
-                    2.0 = most-occluded gets ~3x weight of least-occluded.
-        ratio_min:  Ratio values below this are clamped (fully occluded).
-        ratio_max:  Ratio values above this are clamped (fully visible).
+        seg_area: Pixel-level segmentation area from COCO annotation.
+        bbox_area: Bounding box area (w * h).
+        alpha: Strength of the occlusion boost. 0 = uniform weighting (all get 1.0), 2.0 = most-occluded gets ~3x weight
+            of least-occluded.
+        ratio_min: Ratio values below this are clamped (fully occluded).
+        ratio_max: Ratio values above this are clamped (fully visible).
 
     Returns:
         Occlusion weight ≥ 1.0 (higher = more occluded = harder sample).
@@ -64,8 +65,14 @@ def compute_occlusion_weight(seg_area: float, bbox_area: float, alpha: float = 2
     return 1.0 + alpha * (1.0 - normalized)
 
 
-def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_keypoints: int = 2,
-                              copy_images: bool = False, occ_alpha: float = 0.0):
+def convert_coco_to_yolo_pose(
+    coco_dir: str,
+    output_dir: str,
+    splits: list,
+    num_keypoints: int = 2,
+    copy_images: bool = False,
+    occ_alpha: float = 0.0,
+):
     coco_dir = Path(coco_dir)
     output_dir = Path(output_dir)
     src_ann_dir = coco_dir / "annotations"
@@ -142,15 +149,14 @@ def convert_coco_to_yolo_pose(coco_dir: str, output_dir: str, splits: list, num_
 
                 raw_kpts = ann.get("keypoints", [])
 
-                # Normalise to a list of (x, y, v) tuples regardless of storage format:
+                # Normalize to a list of (x, y, v) tuples regardless of storage format:
                 #   - Nested format (sskit/SoccerNet): [[x0,y0,v0], [x1,y1,v1], ...]
                 #   - Flat format (standard COCO):      [x0, y0, v0, x1, y1, v1, ...]
                 if raw_kpts and isinstance(raw_kpts[0], (list, tuple)):
                     kpt_triples = [tuple(kp) for kp in raw_kpts]
                 else:
                     kpt_triples = [
-                        (raw_kpts[i], raw_kpts[i + 1], raw_kpts[i + 2])
-                        for i in range(0, len(raw_kpts) - 2, 3)
+                        (raw_kpts[i], raw_kpts[i + 1], raw_kpts[i + 2]) for i in range(0, len(raw_kpts) - 2, 3)
                     ]
 
                 kpt_values = []
@@ -188,11 +194,16 @@ if __name__ == "__main__":
     parser.add_argument("--splits", nargs="+", default=["train", "val", "test"], help="Dataset splits to convert")
     parser.add_argument("--num-keypoints", type=int, default=2, help="Number of keypoints per annotation")
     parser.add_argument("--copy-images", action="store_true", help="Copy images instead of creating symlinks")
-    parser.add_argument("--occ-alpha", type=float, default=0.0,
-                        help="Occlusion-aware weight strength (0=off, 2.0=recommended). "
-                             "Replaces visibility flag with continuous weight derived from "
-                             "seg_area/bbox_area ratio: more occluded → higher weight.")
+    parser.add_argument(
+        "--occ-alpha",
+        type=float,
+        default=0.0,
+        help="Occlusion-aware weight strength (0=off, 2.0=recommended). "
+        "Replaces visibility flag with continuous weight derived from "
+        "seg_area/bbox_area ratio: more occluded → higher weight.",
+    )
     args = parser.parse_args()
 
-    convert_coco_to_yolo_pose(args.coco_dir, args.output_dir, args.splits, args.num_keypoints,
-                              args.copy_images, args.occ_alpha)
+    convert_coco_to_yolo_pose(
+        args.coco_dir, args.output_dir, args.splits, args.num_keypoints, args.copy_images, args.occ_alpha
+    )
